@@ -1,0 +1,18 @@
+# services:
+#   mysql:
+#     image: mysql:8
+#     container_name: ${MYSQL_CONTAINER_NAME:-anonforge_dev_mysql}
+#     restart: unless-stopped
+#     ports:
+#       - "${DB_PORT:-3306}:3306"
+#     environment:
+#       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+#       MYSQL_DATABASE: ${DB_NAME}
+#       TZ: ${TZ}
+#     volumes:
+#       - ${DB_DATA_PATH:-./mysql/data}:/var/lib/mysql
+#     healthcheck:
+#       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+#       interval: ${DB_HEALTHCHECK_INTERVAL:-10s}
+#       timeout: ${DB_HEALTHCHECK_TIMEOUT:-5s}
+#       retries: ${DB_HEALTHCHECK_RETRIES:-3}
