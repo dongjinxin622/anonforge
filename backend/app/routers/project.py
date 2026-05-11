@@ -10,7 +10,7 @@ router = APIRouter(prefix="/projects", tags=["project"])
     summary="项目模块占位接口",
     description="返回项目模块的基础占位信息，用于验证路由注册状态。",
 )
-def list_projects() -> dict[str, str]:
+async def list_projects() -> dict[str, str]:
     """获取项目模块占位信息。
 
     Returns:

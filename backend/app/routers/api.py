@@ -14,7 +14,7 @@ api_router.include_router(project_router)
     summary="健康检查",
     description="检查后端服务是否正常运行。",
 )
-def health_check() -> dict[str, str]:
+async def health_check() -> dict[str, str]:
     """返回服务健康状态。
     Returns:
         dict[str, str]: 固定返回 `status=ok` 的状态对象。

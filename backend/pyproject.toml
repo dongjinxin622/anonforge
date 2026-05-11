@@ -12,6 +12,7 @@ dependencies = [
     "pillow",
     "httpx",
     "crewai",
+    "pytest"
 ]
 
 [dependency-groups]

@@ -38,6 +38,8 @@ class Settings(object):
     db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", "anonforge"))
     db_user: str = field(default_factory=lambda: os.getenv("DB_USER", "root"))
     db_password: str = field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
+    db_healthcheck_retries: int = field(default_factory=lambda: int(os.getenv("DB_HEALTHCHECK_RETRIES", "3")))
+    db_sqlite_path: str = field(default_factory=lambda: os.getenv("DB_SQLITE_PATH", "./data/db.sqlite3"))
     database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", "mysql+aiomysql://root:@8.147.69.101:3306/anonforge"))
     tz: str = field(default_factory=lambda: os.getenv("TZ", "Asia/Shanghai"))
 
