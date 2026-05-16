@@ -1,10 +1,7 @@
-import sys
-import asyncio
-
-if sys.platform.startswith("win"):
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 from contextlib import asynccontextmanager
+
+import traceback
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
@@ -22,6 +19,7 @@ async def lifespan(_: FastAPI):
     # yield之后的代码，属于App关闭之后执行[记录并回收资源]
     print("yield之后")
 
+
 def create_app() -> FastAPI:
     """创建并配置 FastAPI 应用实例。
 
@@ -29,13 +27,20 @@ def create_app() -> FastAPI:
         FastAPI: 已注册全局路由和生命周期钩子的应用对象。
     """
     app = FastAPI(
-            title=settings.app_name,
-            description=settings.app_description,
-            lifespan=lifespan
+        title=settings.app_name,
+        description=settings.app_description,
+        lifespan=lifespan,
     )
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(_: Request, exc: Exception):
+        """全局异常捕获，打印完整堆栈以便调试。"""
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     app.include_router(api_router)
 
     return app
+
 
 app = create_app()

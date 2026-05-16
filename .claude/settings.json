@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import sys; print\\(sys.executable\\); import site; print\\(site.getsitepackages\\(\\)\\)\")",
+      "Read(//c/Python314/Scripts//**)",
+      "WebSearch",
+      "Read(//c/Users/djx/.claude/**)",
+      "WebFetch(domain:help.aliyun.com)",
+      "Bash(curl -s -X POST https://dashscope.aliyuncs.com/apps/anthropic/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: sk-93b1c3640da64870b81f430e1495f73e' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"deepseek-v4-pro\",\"max_tokens\":10,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}')",
+      "Bash(curl -s -X POST https://dashscope.aliyuncs.com/compatible-mode/v1/messages -H 'Content-Type: application/json' -H 'x-api-key: sk-93b1c3640da64870b81f430e1495f73e' -H 'anthropic-version: 2023-06-01' -d '{\"model\":\"claude-3-5-haiku-20241022\",\"max_tokens\":10,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}')",
+      "Bash(pip install *)",
+      "Bash(python -c ' *)",
+      "Bash(mkdir -p e:/projects/case_one/.vscode)",
+      "Bash(python -m pip install -r e:/projects/case_one/backend/requirements.txt)",
+      "Read(//e/AI智能体课程/AI agent/day27/代码/code/frontend/src/**)",
+      "Read(//e/AI智能体课程/AI agent/day27/代码/code/frontend/src/routes/**)",
+      "Read(//e/projects/case_1.1/code/backend/app/utils/**)",
+      "Read(//e/projects/case_1.1/code/backend/app/routers/**)",
+      "Bash(cp /e/projects/case_1.1/code/backend/alembic.ini /e/projects/case_one/backend/alembic.ini)",
+      "Bash(cp -r /e/projects/case_1.1/code/backend/alembic /e/projects/case_one/backend/alembic)",
+      "Bash(cp /e/projects/case_1.1/code/backend/pytest.ini /e/projects/case_one/backend/pytest.ini)",
+      "Bash(cp /e/projects/case_1.1/code/backend/requirements.txt /e/projects/case_one/backend/requirements.txt)",
+      "Bash(cp /e/projects/case_1.1/code/backend/run.py /e/projects/case_one/backend/run.py)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\djx\\.claude",
+      "e:\\projects\\case_one"
+    ]
+  }
+}

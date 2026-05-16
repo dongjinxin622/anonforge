@@ -1,13 +1,16 @@
 import sys
 import asyncio
-
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
+import selectors
 
 import uvicorn
 from app.core.config import settings
 
-
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host=settings.host, port=settings.port)
+    if sys.platform == "win32":
+        # psycopg 要求 SelectorEventLoop，在 Windows 上显式指定
+        loop = asyncio.SelectorEventLoop()
+        config = uvicorn.Config("app.main:app", host=settings.host, port=settings.port, loop="asyncio")
+        server = uvicorn.Server(config)
+        loop.run_until_complete(server.serve())
+    else:
+        uvicorn.run("app.main:app", host=settings.host, port=settings.port)
