@@ -141,7 +141,7 @@ const goForgotPassword = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+
   font-family: "JetBrains Mono", Consolas, monospace;
   color: #e6edf3;
   background: radial-gradient(circle at top, #161b22, #0b0d10);

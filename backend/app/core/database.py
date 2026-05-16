@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
@@ -16,6 +15,7 @@ def build_engine() -> AsyncEngine:
     Returns:
         AsyncEngine: 基于当前配置创建的 SQLModel 异步引擎实例。
     """
+    
     database_url = build_database_url(
         db_engine=settings.db_engine,
         db_driver=settings.db_driver,
@@ -34,12 +34,10 @@ def build_engine() -> AsyncEngine:
 engine = build_engine()
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-
 async def create_db_and_tables() -> None:
     """使用异步数据库引擎创建所有 SQLModel 数据表。"""
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
-
 
 async def drop_db_and_tables() -> None:
     """使用异步数据库引擎删除所有 SQLModel 数据表。"""
