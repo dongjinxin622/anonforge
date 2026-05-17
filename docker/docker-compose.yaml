@@ -17,3 +17,20 @@ services:
       interval: ${DB_HEALTHCHECK_INTERVAL:-10s}
       timeout: ${DB_HEALTHCHECK_TIMEOUT:-5s}
       retries: ${DB_HEALTHCHECK_RETRIES:-3}
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:8.6.3-alpine}
+    container_name: ${REDIS_CONTAINER_NAME:-anonforge_dev_redis}
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - ${REDIS_DATA_PATH:-./redis/data}:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: ${REDIS_HEALTHCHECK_INTERVAL:-10s}
+      timeout: ${REDIS_HEALTHCHECK_TIMEOUT:-5s}
+      retries: ${REDIS_HEALTHCHECK_RETRIES:-3}

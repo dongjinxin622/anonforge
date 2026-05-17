@@ -11,8 +11,14 @@ export default defineConfig({
   resolve: { alias: {"@": path.resolve(__dirname, "src") } },
   server: {
     proxy: {
-      "/api": "http://127.0.0.1:8088/api",
-      "/oss": "http://127.0.0.1:8088/oss",
+      "/api": {
+        target: "http://127.0.0.1:8088",
+        changeOrigin: true,
+      },
+      "/oss": {
+        target: "http://127.0.0.1:8088",
+        changeOrigin: true,
+      },
     },
   },
 })

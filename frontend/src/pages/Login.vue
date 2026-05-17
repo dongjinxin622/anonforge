@@ -78,10 +78,11 @@
 
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { useRouter, RouterLink } from 'vue-router'
+import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { Hide, View } from '@element-plus/icons-vue'
+import { loginApi } from '@/api/user'
 
 interface LoginForm {
   username: string
@@ -107,32 +108,36 @@ const loginRules: FormRules<LoginForm> = {
   ],
 }
 
-const handleLogin = async () => {
-  if (!loginFormRef.value) return
+  const handleLogin = async () => {
+    if (!loginFormRef.value) return
 
-  const valid = await loginFormRef.value.validate().catch(() => false)
-  if (!valid) return
+    const valid = await loginFormRef.value.validate().catch(() => false)
+    if (!valid) return
 
-  loading.value = true
+    loading.value = true
 
-  try {
-    // 示例登录逻辑：按原页面默认账号 admin / admin123 校验。
-    // 接入真实接口时，可在这里替换为 await loginApi(loginForm)。
-    if (loginForm.username === 'admin' && loginForm.password === 'admin123') {
+    try {
+      const { data } = await loginApi({
+        username: loginForm.username.trim(),
+        password: loginForm.password,
+      })
+
+      localStorage.setItem('access_token', data.access_token)
+      localStorage.setItem('refresh_token', data.refresh_token)
+      localStorage.setItem('token_type', data.token_type)
+      localStorage.setItem('expires_in', String(data.expires_in))
+      localStorage.setItem('user', JSON.stringify(data.user))
+
       ElMessage.success('登录成功')
-      await router.push('/dashboard')
-      return
+      await router.replace('/project')
+    } finally {
+      loading.value = false
     }
-
-    ElMessage.error('用户名或密码错误')
-  } finally {
-    loading.value = false
   }
-}
 
-const goForgotPassword = () => {
-  router.push('/forgot-password')
-}
+  const goForgotPassword = () => {
+    ElMessage.info('请联系管理员重置密码')
+  }
 </script>
 
 <style scoped>
@@ -141,7 +146,6 @@ const goForgotPassword = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-
   font-family: "JetBrains Mono", Consolas, monospace;
   color: #e6edf3;
   background: radial-gradient(circle at top, #161b22, #0b0d10);
