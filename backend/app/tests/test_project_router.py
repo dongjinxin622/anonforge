@@ -9,6 +9,8 @@ from app.core import database as database_module
 from app.routers import api as api_module
 from app.routers import project as project_router_module
 from app.routers import user as user_router_module
+from app.schemas.user import UserCreate
+from app.services import user as user_service_module
 from app.tests.base import EnvTestBase
 
 
@@ -23,6 +25,21 @@ class TestProjectRouter(EnvTestBase):
 
     def _auth_headers(self, token: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
+
+    async def _create_user_via_service(self, user_service, database, **kwargs) -> str:
+        """通过服务层创建用户并返回 public_id。"""
+        async with database.async_session_maker() as session:
+            user = await user_service.create_user(
+                session,
+                UserCreate(
+                    username=kwargs.get("username", "testuser"),
+                    nickname=kwargs.get("nickname", "Test"),
+                    email=kwargs.get("email", "test@test.com"),
+                    password=kwargs.get("password", "password123"),
+                    repassword=kwargs.get("password", "password123"),
+                ),
+            )
+            return user.public_id
 
     @pytest.mark.anyio
     async def test_project_router_crud_flow(
@@ -39,10 +56,11 @@ class TestProjectRouter(EnvTestBase):
             },
         )
 
-        _, database, _, _, _, main = self.reload_modules(
+        _, database, _, user_service, _, _, main = self.reload_modules(
             config_module,
             database_module,
             user_router_module,
+            user_service_module,
             project_router_module,
             api_module,
             main_module,
@@ -54,17 +72,10 @@ class TestProjectRouter(EnvTestBase):
         await database.create_db_and_tables()
         try:
             async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-                create_user_resp = await client.post(
-                    "/api/users/",
-                    json={
-                        "username": "owner",
-                        "nickname": "Owner",
-                        "email": "owner@test.com",
-                        "password": "password123",
-                        "repassword": "password123",
-                    },
+                await self._create_user_via_service(
+                    user_service, database,
+                    username="owner", nickname="Owner", email="owner@test.com",
                 )
-                assert create_user_resp.status_code == 201, f"创建用户失败: {create_user_resp.status_code} {create_user_resp.text}"
                 token = await self._login(client, "owner", "password123")
                 headers = self._auth_headers(token)
 
@@ -205,10 +216,11 @@ class TestProjectRouter(EnvTestBase):
             },
         )
 
-        _, database, _, _, _, main = self.reload_modules(
+        _, database, _, user_service, _, _, main = self.reload_modules(
             config_module,
             database_module,
             user_router_module,
+            user_service_module,
             project_router_module,
             api_module,
             main_module,
@@ -220,25 +232,13 @@ class TestProjectRouter(EnvTestBase):
         await database.create_db_and_tables()
         try:
             async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-                await client.post(
-                    "/api/users/",
-                    json={
-                        "username": "owner2",
-                        "nickname": "Owner",
-                        "email": "owner2@test.com",
-                        "password": "password123",
-                        "repassword": "password123",
-                    },
+                await self._create_user_via_service(
+                    user_service, database,
+                    username="owner2", nickname="Owner", email="owner2@test.com",
                 )
-                await client.post(
-                    "/api/users/",
-                    json={
-                        "username": "member2",
-                        "nickname": "Member",
-                        "email": "member2@test.com",
-                        "password": "password123",
-                        "repassword": "password123",
-                    },
+                await self._create_user_via_service(
+                    user_service, database,
+                    username="member2", nickname="Member", email="member2@test.com",
                 )
                 owner_token = await self._login(client, "owner2", "password123")
                 owner_headers = self._auth_headers(owner_token)
