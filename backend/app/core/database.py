@@ -1,6 +1,7 @@
 from __future__ import annotations
 from collections.abc import AsyncGenerator
 
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -49,3 +50,10 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """为 FastAPI 依赖项提供异步数据库会话。"""
     async with async_session_maker() as session:
         yield session
+
+redis_client = Redis(
+    host=settings.redis_host,
+    port=settings.redis_port,
+    db=settings.redis_db,
+    decode_responses=True,
+)

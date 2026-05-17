@@ -1,23 +1,26 @@
+import asyncio
+import sys
+
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from contextlib import asynccontextmanager
 
-import traceback
+from fastapi import FastAPI
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from sqlalchemy.exc import OperationalError
 from app.core.config import settings
 from app.routers.api import api_router
+from app.services.user import ensure_default_admin
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """在应用启动时完成一些初始化操作，例如：数据库连接，启动一些后台任务之类的。
+    """应用生命周期钩子。
+
+    启动时创建数据库表，并确保系统中存在默认管理员用户。
     """
-    # yield之前的代码，属于App创建之前执行[只需要在项目开始前执行一次的操作，初始化数据库等外部链接，]
-    print("yield之前")
+    await ensure_default_admin()
     yield
-    # yield之后的代码，属于App关闭之后执行[记录并回收资源]
-    print("yield之后")
 
 
 def create_app() -> FastAPI:
@@ -31,12 +34,6 @@ def create_app() -> FastAPI:
         description=settings.app_description,
         lifespan=lifespan,
     )
-
-    @app.exception_handler(Exception)
-    async def global_exception_handler(_: Request, exc: Exception):
-        """全局异常捕获，打印完整堆栈以便调试。"""
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     app.include_router(api_router)
 

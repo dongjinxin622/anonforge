@@ -42,7 +42,23 @@ class Settings(object):
     db_healthcheck_timeout: str = field(default_factory=lambda: os.getenv("DB_HEALTHCHECK_TIMEOUT", "5s"))
     db_healthcheck_retries: int = field(default_factory=lambda: int(os.getenv("DB_HEALTHCHECK_RETRIES", "5")))
 
+    redis_host: str = field(default_factory=lambda: os.getenv("REDIS_HOST", "127.0.0.1"))
+    redis_port: int = field(default_factory=lambda: int(os.getenv("REDIS_PORT", "6379")))
+    redis_db: int = field(default_factory=lambda: int(os.getenv("REDIS_DB", "0")))
+    redis_container_name: str = field(default_factory=lambda: os.getenv("REDIS_CONTAINER_NAME", "anonforge_dev_redis"))
+    redis_data_path: str = field(default_factory=lambda: os.getenv("REDIS_DATA_PATH", "./redis/data"))
+    redis_healthcheck_interval: str = field(default_factory=lambda: os.getenv("REDIS_HEALTHCHECK_INTERVAL", "10s"))
+    redis_healthcheck_timeout: str = field(default_factory=lambda: os.getenv("REDIS_HEALTHCHECK_TIMEOUT", "5s"))
+    redis_healthcheck_retries: int = field(default_factory=lambda: int(os.getenv("REDIS_HEALTHCHECK_RETRIES", "3")))
+
+    redis_token_key_prefix: str = field(default_factory=lambda: os.getenv("REDIS_TOKEN_KEY_PREFIX", "auth:token:"))
+    algorithm: str = field(default_factory=lambda: os.getenv("ALGORITHM", "HS256"))
+    access_token_expire_seconds: int = field(default_factory=lambda: int(os.getenv("ACCESS_TOKEN_EXPIRE_SECONDS", "900")))
+    refresh_token_expire_seconds: int = field(default_factory=lambda: int(os.getenv("REFRESH_TOKEN_EXPIRE_SECONDS", "604800")))
+    secret_key: str = field(default_factory=lambda: os.getenv("SECRET_KEY", "dev-secret-key"))
+
     user_default_admin_name: str = field(default_factory=lambda: os.getenv("USER_DEFAULT_ADMIN_NAME", "admin"))
     user_default_admin_password: str = field(default_factory=lambda: os.getenv("USER_DEFAULT_ADMIN_PASSWORD", "admin123"))
+
 
 settings = Settings()

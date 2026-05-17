@@ -7,3 +7,6 @@ httpx
 crewai
 pytest
 alembic
+redis
+PyJWT 
+bcrypt

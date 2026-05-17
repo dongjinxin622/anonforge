@@ -1,6 +1,10 @@
 from __future__ import annotations
 from hashlib import sha256
 
+import bcrypt
+
+BCRYPT_SHA256_PREFIX = "$bcrypt-sha256$"
+
 
 def build_database_url(
     *,
@@ -34,13 +38,39 @@ def build_database_url(
     return f"{db_engine.lower()}+{db_driver}://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 
 
+def _normalize_password(password: str) -> bytes:
+    """将明文密码归一化为适合 bcrypt 处理的固定长度字节串。"""
+    return sha256(password.encode("utf-8")).hexdigest().encode("ascii")
+
+
 def hash_password(password: str) -> str:
-    """对明文密码进行 SHA-256 摘要计算。
+    """生成密码哈希。
 
     Args:
         password: 待处理的明文密码。
 
     Returns:
-        str: 十六进制格式的密码摘要。
+        str: 带算法前缀的 bcrypt 密码哈希。
     """
-    return sha256(password.encode("utf-8")).hexdigest()
+    password_hash = bcrypt.hashpw(_normalize_password(password), bcrypt.gensalt())
+    return f"{BCRYPT_SHA256_PREFIX}{password_hash.decode('ascii')}"
+
+
+def verify_password(plain_password: str, password_hash: str) -> bool:
+    """校验明文密码与密码哈希是否匹配。
+
+    Args:
+        plain_password: 用户的明文密码。
+        password_hash: 存档的密码哈希。
+
+    Returns:
+        bool: 校验结果。
+    """
+    try:
+        if password_hash.startswith(BCRYPT_SHA256_PREFIX):
+            stored_hash = password_hash.removeprefix(BCRYPT_SHA256_PREFIX).encode("ascii")
+            return bcrypt.checkpw(_normalize_password(plain_password), stored_hash)
+
+        return bcrypt.checkpw(plain_password.encode("utf-8"), password_hash.encode("ascii"))
+    except ValueError:
+        return False
