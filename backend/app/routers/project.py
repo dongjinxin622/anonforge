@@ -1,19 +1,417 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Annotated
 
-router = APIRouter(prefix="/projects", tags=["project"])
+from fastapi import Depends, HTTPException, Request, Response, status
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-
-@router.get(
-    "/",
-    summary="项目模块占位接口",
-    description="返回项目模块的基础占位信息，用于验证路由注册状态。",
+from app.core.database import get_session
+from app.middlewares import common
+from app.models.project import ProjectMemberRole
+from app.routers.base import BaseView, route
+from app.schemas.project import (
+    ProjectCreate,
+    ProjectMemberInvite,
+    ProjectMemberRead,
+    ProjectRead,
+    ProjectUpdate,
 )
-async def list_projects() -> dict[str, str]:
-    """获取项目模块占位信息。
+from app.schemas.user import UserRead
+from app.services import project as project_service
 
-    Returns:
-        dict[str, str]: 当前模块的标识信息。
-    """
-    return {"module": "project"}
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+PROJECT_ROUTE_MIDDLEWARES = [
+    Depends(common.jwt_auth_middleware),
+    Depends(common.request_duration_middleware),
+]
+
+
+class ProjectView(BaseView):
+    """项目类视图。"""
+
+    router_prefix = "/projects"
+    router_tags = ["project"]
+
+    @staticmethod
+    def _current_user_public_id(request: Request) -> str:
+        """从已认证请求中读取当前用户公开标识。"""
+        public_id = getattr(request.state, "current_user_public_id", None)
+        if not public_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="请提供 access token",
+                headers=common.BEARER_AUTH_HEADER,
+            )
+        return str(public_id)
+
+    @staticmethod
+    def _raise_as_http(exc: Exception) -> None:
+        """将项目服务层异常转换为 HTTP 异常。"""
+        if isinstance(exc, project_service.ProjectNotFoundError):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        if isinstance(exc, project_service.ProjectMemberNotFoundError):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        if isinstance(exc, project_service.ProjectAccessDeniedError):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        if isinstance(exc, project_service.ProjectMemberConflictError):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise exc
+
+    @route(
+        "/",
+        methods=["GET"],
+        response_model=list[ProjectRead],
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="获取项目列表",
+        description="返回当前用户可访问的项目列表；管理员可查看全部项目。",
+    )
+    async def list_projects(self, request: Request, session: SessionDep) -> list[ProjectRead]:
+        """获取当前用户可访问的项目列表。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.list_projects(session, current_user_public_id)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/search/by-name",
+        methods=["GET"],
+        response_model=list[ProjectRead],
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="按项目名搜索项目",
+        description="按项目名称关键字搜索当前用户可访问的项目；管理员可搜索全部项目。",
+    )
+    async def search_projects_by_name(
+        self,
+        name: str,
+        request: Request,
+        session: SessionDep,
+    ) -> list[ProjectRead]:
+        """按项目名搜索项目列表。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.search_projects_by_name(session, current_user_public_id, name)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/search/by-member",
+        methods=["GET"],
+        response_model=list[ProjectRead],
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="按项目成员搜索项目",
+        description="按成员用户公开标识搜索当前用户可访问的项目；管理员可搜索全部项目。",
+    )
+    async def search_projects_by_member(
+        self,
+        member_public_id: str,
+        request: Request,
+        session: SessionDep,
+    ) -> list[ProjectRead]:
+        """按项目成员搜索项目列表。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.search_projects_by_member(
+                session,
+                current_user_public_id,
+                member_public_id,
+            )
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}",
+        methods=["GET"],
+        response_model=ProjectRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="获取项目详情",
+        description="根据项目公开 ID 获取项目详情；非管理员只能访问自己相关项目。",
+    )
+    async def get_project_detail(
+        self,
+        public_id: str,
+        request: Request,
+        session: SessionDep,
+    ) -> ProjectRead:
+        """获取项目详情。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.get_project_or_raise(session, public_id, current_user_public_id)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/",
+        methods=["POST"],
+        response_model=ProjectRead,
+        status_code=status.HTTP_201_CREATED,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="创建项目",
+        description="为当前登录用户创建项目，并自动添加 owner 项目成员记录。",
+    )
+    async def create_project(
+        self,
+        payload: ProjectCreate,
+        request: Request,
+        session: SessionDep,
+    ) -> ProjectRead:
+        """创建项目。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.create_project(session, current_user_public_id, payload)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}",
+        methods=["PUT"],
+        response_model=ProjectRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="更新项目",
+        description="根据项目公开 ID 更新项目基础信息；非管理员只能更新自己相关项目。",
+    )
+    async def update_project(
+        self,
+        public_id: str,
+        payload: ProjectUpdate,
+        request: Request,
+        session: SessionDep,
+    ) -> ProjectRead:
+        """更新项目基础信息。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.update_project(session, public_id, payload, current_user_public_id)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}/disable",
+        methods=["PATCH"],
+        response_model=ProjectRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="禁用项目",
+        description="将指定项目标记为禁用状态；非管理员只能禁用自己相关项目。",
+    )
+    async def disable_project(
+        self,
+        public_id: str,
+        request: Request,
+        session: SessionDep,
+    ) -> ProjectRead:
+        """禁用项目。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.disable_project(session, public_id, current_user_public_id)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}/enable",
+        methods=["PATCH"],
+        response_model=ProjectRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="启用项目",
+        description="将指定项目恢复为可用状态；非管理员只能启用自己相关项目。",
+    )
+    async def enable_project(
+        self,
+        public_id: str,
+        request: Request,
+        session: SessionDep,
+    ) -> ProjectRead:
+        """启用项目。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.enable_project(session, public_id, current_user_public_id)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}",
+        methods=["DELETE"],
+        status_code=status.HTTP_204_NO_CONTENT,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="删除项目",
+        description="根据项目公开 ID 删除项目及其成员关系；非管理员只能删除自己相关项目。",
+    )
+    async def delete_project(
+        self,
+        public_id: str,
+        request: Request,
+        session: SessionDep,
+    ) -> Response:
+        """删除项目。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            await project_service.delete_project(session, public_id, current_user_public_id)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @route(
+        "/{public_id}/members/candidates",
+        methods=["GET"],
+        response_model=list[UserRead],
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="搜索可邀请项目成员",
+        description="在当前项目中按用户名或邮箱搜索可邀请用户，已在项目中的成员不会重复返回。",
+    )
+    async def search_project_member_candidates(
+        self,
+        public_id: str,
+        keyword: str,
+        request: Request,
+        session: SessionDep,
+    ) -> list[UserRead]:
+        """搜索可邀请加入项目的用户。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.search_project_member_candidates(
+                session,
+                public_id,
+                keyword,
+                current_user_public_id,
+            )
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}/members",
+        methods=["GET"],
+        response_model=list[ProjectMemberRead],
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="获取项目成员列表",
+        description="根据项目公开 ID 获取项目成员列表；非管理员只能查看自己相关项目的成员。",
+    )
+    async def list_project_members(
+        self,
+        public_id: str,
+        request: Request,
+        session: SessionDep,
+    ) -> list[ProjectMemberRead]:
+        """获取项目成员列表。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.list_project_members(session, public_id, current_user_public_id)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}/members/invitations",
+        methods=["POST"],
+        response_model=ProjectMemberRead,
+        status_code=status.HTTP_201_CREATED,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="邀请项目成员",
+        description="使用搜索结果中的用户公开标识邀请用户加入项目，并指定成员角色。",
+    )
+    async def invite_project_member(
+        self,
+        public_id: str,
+        payload: ProjectMemberInvite,
+        request: Request,
+        session: SessionDep,
+    ) -> ProjectMemberRead:
+        """邀请项目成员。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.invite_project_member(
+                session,
+                public_id,
+                payload.user_public_id,
+                payload.role,
+                current_user_public_id,
+            )
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}/members",
+        methods=["POST"],
+        response_model=ProjectMemberRead,
+        status_code=status.HTTP_201_CREATED,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="新增项目成员",
+        description="为指定项目新增成员；非管理员只能操作自己相关项目。",
+    )
+    async def add_project_member(
+        self,
+        public_id: str,
+        user_public_id: str,
+        role: ProjectMemberRole,
+        request: Request,
+        session: SessionDep,
+    ) -> ProjectMemberRead:
+        """新增项目成员。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.add_project_member(
+                session,
+                public_id,
+                user_public_id,
+                role,
+                current_user_public_id,
+            )
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}/members/{user_public_id}",
+        methods=["PATCH"],
+        response_model=ProjectMemberRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="更新项目成员角色",
+        description="更新指定项目成员角色；非管理员只能操作自己相关项目。",
+    )
+    async def update_project_member_role(
+        self,
+        public_id: str,
+        user_public_id: str,
+        role: ProjectMemberRole,
+        request: Request,
+        session: SessionDep,
+    ) -> ProjectMemberRead:
+        """更新项目成员角色。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.update_project_member_role(
+                session,
+                public_id,
+                user_public_id,
+                role,
+                current_user_public_id,
+            )
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/{public_id}/members/{user_public_id}",
+        methods=["DELETE"],
+        status_code=status.HTTP_204_NO_CONTENT,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="移除项目成员",
+        description="移除指定项目成员；非管理员只能操作自己相关项目。",
+    )
+    async def remove_project_member(
+        self,
+        public_id: str,
+        user_public_id: str,
+        request: Request,
+        session: SessionDep,
+    ) -> Response:
+        """移除项目成员。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            await project_service.remove_project_member(
+                session,
+                public_id,
+                user_public_id,
+                current_user_public_id,
+            )
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+router = ProjectView()()
