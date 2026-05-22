@@ -1,13 +1,36 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import re
+import shutil
+from pathlib import Path
+from urllib.parse import quote
+
 from sqlalchemy import exists, or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.config import BASE_DIR, settings
 from app.models.project import Project, ProjectMember, ProjectMemberRole
 from app.models.user import User
-from app.schemas.project import ProjectCreate, ProjectUpdate
+from app.schemas.project import (
+    ProjectCreate,
+    ProjectMemberRead,
+    ProjectUpdate,
+    VisualStyleCreate,
+    VisualStyleFileRead,
+    VisualStyleFileWrite,
+    VisualStyleImageRead,
+    VisualStyleImageWrite,
+    VisualStyleRead,
+    VisualStyleUpdate,
+)
 from app.utils.time_tools import utc_now
+
+STYLE_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$")
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+IMAGES_DIR_NAME = "images"
 
 
 class ProjectServiceError(Exception):
@@ -28,6 +51,18 @@ class ProjectMemberNotFoundError(ProjectServiceError):
 
 class ProjectMemberConflictError(ProjectServiceError):
     """项目成员已存在异常。"""
+
+
+class VisualStyleNotFoundError(ProjectServiceError):
+    """视觉风格不存在。"""
+
+
+class VisualStyleConflictError(ProjectServiceError):
+    """视觉风格已存在。"""
+
+
+class VisualStyleValidationError(ProjectServiceError):
+    """视觉风格文件校验不合法。"""
 
 
 async def get_project_by_id(
@@ -300,12 +335,12 @@ async def list_project_members(
     session: AsyncSession,
     project_public_id: str,
     current_user_public_id: str,
-) -> list[ProjectMember]:
+) -> list[ProjectMemberRead]:
     """按项目公开 ID 获取项目成员列表。"""
     project = await get_project_or_raise(session, project_public_id, current_user_public_id)
     if project.id is None:
         raise ProjectNotFoundError("Project not found")
-    return await _list_project_members_by_project_id(session, project.id)
+    return await _list_project_member_reads_by_project_id(session, project.id)
 
 
 async def add_project_member(
@@ -314,7 +349,7 @@ async def add_project_member(
     user_public_id: str,
     role: ProjectMemberRole,
     current_user_public_id: str,
-) -> ProjectMember:
+) -> ProjectMemberRead:
     """新增项目成员。"""
     project = await get_project_or_raise(session, project_public_id, current_user_public_id)
     if project.id is None:
@@ -333,7 +368,10 @@ async def add_project_member(
     session.add(member)
     await session.commit()
     await session.refresh(member)
-    return member
+    member_read = await _get_project_member_read(session, project.id, user_public_id)
+    if member_read is None:
+        raise ProjectMemberNotFoundError("Project member not found")
+    return member_read
 
 
 async def invite_project_member(
@@ -342,7 +380,7 @@ async def invite_project_member(
     user_public_id: str,
     role: ProjectMemberRole,
     current_user_public_id: str,
-) -> ProjectMember:
+) -> ProjectMemberRead:
     """邀请用户加入项目。"""
     await _get_user_by_public_id_or_raise(session, user_public_id)
     return await add_project_member(
@@ -360,7 +398,7 @@ async def update_project_member_role(
     user_public_id: str,
     role: ProjectMemberRole,
     current_user_public_id: str,
-) -> ProjectMember:
+) -> ProjectMemberRead:
     """更新项目成员角色。"""
     project = await get_project_or_raise(session, project_public_id, current_user_public_id)
     if project.id is None:
@@ -376,7 +414,10 @@ async def update_project_member_role(
     session.add(member)
     await session.commit()
     await session.refresh(member)
-    return member
+    member_read = await _get_project_member_read(session, project.id, user_public_id)
+    if member_read is None:
+        raise ProjectMemberNotFoundError("Project member not found")
+    return member_read
 
 
 async def remove_project_member(
@@ -414,6 +455,61 @@ async def _list_project_members_by_project_id(
     return list(result.all())
 
 
+async def _list_project_member_reads_by_project_id(
+    session: AsyncSession,
+    project_id: int,
+) -> list[ProjectMemberRead]:
+    """按项目内部主键获取含用户邮箱的成员响应列表。"""
+    statement = (
+        select(ProjectMember, User.email)
+        .join(User, ProjectMember.user_public_id == User.public_id, isouter=True)
+        .where(ProjectMember.project_id == project_id)
+        .order_by(ProjectMember.id)
+    )
+    result = await session.exec(statement)
+    return [
+        _build_project_member_read(member, user_email)
+        for member, user_email in result.all()
+    ]
+
+
+async def _get_project_member_read(
+    session: AsyncSession,
+    project_id: int,
+    user_public_id: str,
+) -> ProjectMemberRead | None:
+    """按项目和用户获取含用户邮箱的成员响应。"""
+    statement = (
+        select(ProjectMember, User.email)
+        .join(User, ProjectMember.user_public_id == User.public_id, isouter=True)
+        .where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_public_id == user_public_id,
+        )
+    )
+    result = await session.exec(statement)
+    row = result.first()
+    if row is None:
+        return None
+
+    member, user_email = row
+    return _build_project_member_read(member, user_email)
+
+
+def _build_project_member_read(member: ProjectMember, user_email: str | None) -> ProjectMemberRead:
+    """将成员关系与用户邮箱封装为客户端响应。"""
+    if member.id is None:
+        raise ProjectServiceError("Project member id was not generated")
+    return ProjectMemberRead(
+        id=member.id,
+        project_id=member.project_id,
+        user_public_id=member.user_public_id,
+        user_email=user_email,
+        role=member.role,
+        joined_at=member.joined_at,
+    )
+
+
 async def _get_current_user_or_raise(session: AsyncSession, current_user_public_id: str) -> User:
     """获取当前用户，不存在时按项目访问拒绝处理。"""
     statement = select(User).where(User.public_id == current_user_public_id)
@@ -432,6 +528,14 @@ async def _get_user_by_public_id_or_raise(session: AsyncSession, public_id: str)
     if user is None:
         raise ProjectMemberNotFoundError("User not found")
     return user
+
+
+async def _ensure_superuser(session: AsyncSession, current_user_public_id: str) -> User:
+    """确认当前用户是超级管理员。"""
+    current_user = await _get_current_user_or_raise(session, current_user_public_id)
+    if not current_user.is_superuser:
+        raise ProjectAccessDeniedError("Admin privilege required")
+    return current_user
 
 
 async def _ensure_project_access(
@@ -477,3 +581,341 @@ def _project_has_member_condition(user_public_id: str):
         ProjectMember.project_id == Project.id,
         ProjectMember.user_public_id == user_public_id,
     )
+
+
+async def list_visual_styles(session: AsyncSession) -> list[VisualStyleRead]:
+    """列出根目录中的全部视觉风格。"""
+    root = _visual_style_root()
+    root.mkdir(parents=True, exist_ok=True)
+    styles = []
+    for style_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+        styles.append(_read_visual_style(style_dir.name))
+    return styles
+
+
+async def get_visual_style(
+    session: AsyncSession,
+    style_path: str,
+) -> VisualStyleRead:
+    """读取指定视觉风格的 Markdown 文件和图片元数据。"""
+    style_dir = _existing_visual_style_dir(style_path)
+    return _read_visual_style(style_dir.name)
+
+
+async def create_visual_style(
+    session: AsyncSession,
+    current_user_public_id: str,
+    payload: VisualStyleCreate,
+) -> VisualStyleRead:
+    """创建视觉风格目录，写入 Markdown 文件和图片。"""
+    await _ensure_superuser(session, current_user_public_id)
+    style_dir = _visual_style_dir(payload.style_path)
+    if style_dir.exists():
+        raise VisualStyleConflictError("Visual style already exists")
+
+    style_dir.mkdir(parents=True)
+    _write_default_readme_if_needed(style_dir, payload.name, payload.files)
+    for file_payload in payload.files:
+        _write_visual_style_file_unchecked(style_dir, file_payload)
+    for image_payload in payload.images:
+        _write_visual_style_image_unchecked(style_dir, image_payload)
+    return _read_visual_style(payload.style_path)
+
+
+async def update_visual_style(
+    session: AsyncSession,
+    style_path: str,
+    payload: VisualStyleUpdate,
+) -> VisualStyleRead:
+    """更新视觉风格 Markdown 文件和图片。"""
+    style_dir = _existing_visual_style_dir(style_path)
+
+    if payload.name and not _payload_contains_file(payload.files, "README.md"):
+        _write_visual_style_file_unchecked(
+            style_dir,
+            VisualStyleFileWrite(path="README.md", content=f"# {payload.name}\n"),
+        )
+    for file_payload in payload.files or []:
+        _write_visual_style_file_unchecked(style_dir, file_payload)
+
+    if payload.replace_images:
+        images_dir = style_dir / IMAGES_DIR_NAME
+        if images_dir.exists():
+            for image_path in images_dir.iterdir():
+                if image_path.is_file() and image_path.suffix.lower() in IMAGE_EXTENSIONS:
+                    image_path.unlink()
+    for image_payload in payload.images or []:
+        _write_visual_style_image_unchecked(style_dir, image_payload)
+
+    return _read_visual_style(style_dir.name)
+
+
+async def delete_visual_style(
+    session: AsyncSession,
+    current_user_public_id: str,
+    style_path: str,
+) -> None:
+    """删除视觉风格目录。"""
+    await _ensure_superuser(session, current_user_public_id)
+    style_dir = _existing_visual_style_dir(style_path)
+    shutil.rmtree(style_dir)
+
+
+async def read_visual_style_file(
+    session: AsyncSession,
+    style_path: str,
+    file_path: str,
+) -> VisualStyleFileRead:
+    """读取视觉风格目录中的单个 Markdown 文件。"""
+    style_dir = _existing_visual_style_dir(style_path)
+    target = _resolve_markdown_file(style_dir, file_path)
+    if not target.exists() or not target.is_file():
+        raise VisualStyleNotFoundError("Visual style file not found")
+    return _read_visual_style_file(style_dir, target)
+
+
+async def write_visual_style_file(
+    session: AsyncSession,
+    style_path: str,
+    payload: VisualStyleFileWrite,
+) -> VisualStyleFileRead:
+    """创建或覆盖视觉风格目录中的单个 Markdown 文件。"""
+    style_dir = _visual_style_dir(style_path)
+    target = _resolve_markdown_file(style_dir, payload.path)
+    if not style_dir.exists():
+        raise VisualStyleNotFoundError("Visual style not found")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(payload.content, encoding="utf-8")
+    return _read_visual_style_file(style_dir, target)
+
+
+async def delete_visual_style_file(
+    session: AsyncSession,
+    current_user_public_id: str,
+    style_path: str,
+    file_path: str,
+) -> None:
+    """删除视觉风格目录中的单个 Markdown 文件。"""
+    await _ensure_superuser(session, current_user_public_id)
+    style_dir = _existing_visual_style_dir(style_path)
+    target = _resolve_markdown_file(style_dir, file_path)
+    if not target.exists() or not target.is_file():
+        raise VisualStyleNotFoundError("Visual style file not found")
+    target.unlink()
+
+
+async def get_visual_style_image_path(
+    session: AsyncSession,
+    style_path: str,
+    filename: str,
+) -> Path:
+    """返回视觉风格图片的本地路径。"""
+    style_dir = _existing_visual_style_dir(style_path)
+    target = _resolve_image_file(style_dir, filename)
+    if not target.exists() or not target.is_file():
+        raise VisualStyleNotFoundError("Visual style image not found")
+    return target
+
+
+async def write_visual_style_image(
+    session: AsyncSession,
+    style_path: str,
+    payload: VisualStyleImageWrite,
+) -> VisualStyleImageRead:
+    """创建或覆盖视觉风格目录中的单个图片。"""
+    style_dir = _existing_visual_style_dir(style_path)
+    return _write_visual_style_image_unchecked(style_dir, payload)
+
+
+async def delete_visual_style_image(
+    session: AsyncSession,
+    style_path: str,
+    filename: str,
+) -> None:
+    """删除视觉风格目录中的单个图片。"""
+    style_dir = _existing_visual_style_dir(style_path)
+    target = _resolve_image_file(style_dir, filename)
+    if not target.exists() or not target.is_file():
+        raise VisualStyleNotFoundError("Visual style image not found")
+    target.unlink()
+
+
+def _visual_style_root() -> Path:
+    """返回配置中的视觉风格根目录。"""
+    configured = Path(settings.visual_style_root).expanduser()
+    root = configured if configured.is_absolute() else BASE_DIR / configured
+    return root.resolve()
+
+
+def _visual_style_dir(style_path: str) -> Path:
+    """校验并返回视觉风格目录路径。"""
+    safe_style_path = _validate_style_path(style_path)
+    root = _visual_style_root()
+    style_dir = (root / safe_style_path).resolve()
+    _ensure_path_inside(style_dir, root)
+    return style_dir
+
+
+def _existing_visual_style_dir(style_path: str) -> Path:
+    """返回已存在的视觉风格目录。"""
+    style_dir = _visual_style_dir(style_path)
+    if not style_dir.exists() or not style_dir.is_dir():
+        raise VisualStyleNotFoundError("Visual style not found")
+    return style_dir
+
+
+def _validate_style_path(style_path: str) -> str:
+    """校验风格目录名，防止路径穿越和非法目录。"""
+    value = style_path.strip()
+    if not STYLE_PATH_PATTERN.fullmatch(value) or value in {".", ".."} or value.isdigit():
+        raise VisualStyleValidationError("Invalid visual style path")
+    return value
+
+
+def _resolve_markdown_file(style_dir: Path, file_path: str) -> Path:
+    """解析风格目录内的 Markdown 文件路径。"""
+    raw = file_path.strip().replace("\\", "/")
+    path = Path(raw)
+    if not raw or path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise VisualStyleValidationError("Invalid visual style file path")
+    if path.suffix.lower() != ".md":
+        raise VisualStyleValidationError("Visual style file must be a .md file")
+    if path.parts[0].lower() == IMAGES_DIR_NAME:
+        raise VisualStyleValidationError("Markdown files cannot be written under images")
+
+    target = (style_dir / path).resolve()
+    _ensure_path_inside(target, style_dir)
+    return target
+
+
+def _resolve_image_file(style_dir: Path, filename: str) -> Path:
+    """解析风格目录 images 子目录内的图片路径。"""
+    raw = filename.strip()
+    path = Path(raw)
+    if not raw or path.name != raw or path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise VisualStyleValidationError("Invalid visual style image filename")
+    if path.suffix.lower() not in IMAGE_EXTENSIONS:
+        raise VisualStyleValidationError("Unsupported visual style image extension")
+
+    images_dir = (style_dir / IMAGES_DIR_NAME).resolve()
+    target = (images_dir / path.name).resolve()
+    _ensure_path_inside(target, images_dir)
+    return target
+
+
+def _ensure_path_inside(path: Path, root: Path) -> None:
+    """确保目标路径没有逃逸出指定根目录。"""
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise VisualStyleValidationError("Path escapes visual style root") from exc
+
+
+def _read_visual_style(style_path: str) -> VisualStyleRead:
+    """从文件系统读取视觉风格完整数据。"""
+    style_dir = _existing_visual_style_dir(style_path)
+    files = [
+        _read_visual_style_file(style_dir, file_path)
+        for file_path in sorted(style_dir.rglob("*.md"))
+        if file_path.is_file()
+    ]
+    images_dir = style_dir / IMAGES_DIR_NAME
+    images = []
+    if images_dir.exists() and images_dir.is_dir():
+        images = [
+            _read_visual_style_image(style_dir, image_path)
+            for image_path in sorted(images_dir.iterdir())
+            if image_path.is_file() and image_path.suffix.lower() in IMAGE_EXTENSIONS
+        ]
+    return VisualStyleRead(
+        style_path=style_dir.name,
+        name=_read_visual_style_name(style_dir),
+        files=files,
+        images=images,
+    )
+
+
+def _read_visual_style_file(style_dir: Path, file_path: Path) -> VisualStyleFileRead:
+    """读取单个 Markdown 文件。"""
+    return VisualStyleFileRead(
+        path=file_path.relative_to(style_dir).as_posix(),
+        content=file_path.read_text(encoding="utf-8"),
+        size_bytes=file_path.stat().st_size,
+    )
+
+
+def _read_visual_style_image(style_dir: Path, image_path: Path) -> VisualStyleImageRead:
+    """读取单个图片元数据。"""
+    filename = image_path.name
+    return VisualStyleImageRead(
+        filename=filename,
+        path=image_path.relative_to(style_dir).as_posix(),
+        url=_visual_style_image_url(style_dir.name, filename),
+        size_bytes=image_path.stat().st_size,
+    )
+
+
+def _visual_style_image_url(style_path: str, filename: str) -> str:
+    """生成可直接给前端访问的视觉风格图片 URL。"""
+    api_prefix = settings.api_prefix.strip()
+    if api_prefix and not api_prefix.startswith("/"):
+        api_prefix = f"/{api_prefix}"
+    api_prefix = api_prefix.rstrip("/")
+    return (
+        f"{api_prefix}/projects/visual-styles/"
+        f"{quote(style_path, safe='')}/images/{quote(filename, safe='')}"
+    )
+
+
+def _write_visual_style_file_unchecked(style_dir: Path, payload: VisualStyleFileWrite) -> VisualStyleFileRead:
+    """写入 Markdown 文件，该方法不校验权限和风格目录存在性。"""
+    target = _resolve_markdown_file(style_dir, payload.path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(payload.content, encoding="utf-8")
+    return _read_visual_style_file(style_dir, target)
+
+
+def _write_visual_style_image_unchecked(style_dir: Path, payload: VisualStyleImageWrite) -> VisualStyleImageRead:
+    """写入图片，该方法不校验权限和风格目录存在性。"""
+    target = _resolve_image_file(style_dir, payload.filename)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(_decode_image_data(payload.data))
+    return _read_visual_style_image(style_dir, target)
+
+
+def _decode_image_data(data: str) -> bytes:
+    """解码 base64 图片数据。"""
+    raw = data.split(",", 1)[1] if data.startswith("data:") and "," in data else data
+    try:
+        return base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise VisualStyleValidationError("Invalid image base64 data") from exc
+
+
+def _read_visual_style_name(style_dir: Path) -> str:
+    """从 README 第一行读取风格展示名称。"""
+    readme = style_dir / "README.md"
+    if not readme.exists():
+        return style_dir.name
+    for line in readme.read_text(encoding="utf-8").splitlines():
+        value = line.strip().lstrip("#").strip()
+        if value:
+            return value
+    return style_dir.name
+
+
+def _write_default_readme_if_needed(
+    style_dir: Path,
+    name: str,
+    files: list[VisualStyleFileWrite],
+) -> None:
+    """创建风格时如果只给了名称，自动生成一个 README。"""
+    if not name or _payload_contains_file(files, "README.md"):
+        return
+    _write_visual_style_file_unchecked(style_dir, VisualStyleFileWrite(path="README.md", content=f"# {name}\n"))
+
+
+def _payload_contains_file(files: list[VisualStyleFileWrite] | None, file_path: str) -> bool:
+    """判断文件写入列表中是否包含指定的路径。"""
+    expected = file_path.replace("\\", "/").lower()
+    return any(item.path.replace("\\", "/").lower() == expected for item in files or [])

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_session
@@ -15,6 +16,13 @@ from app.schemas.project import (
     ProjectMemberRead,
     ProjectRead,
     ProjectUpdate,
+    VisualStyleCreate,
+    VisualStyleFileRead,
+    VisualStyleFileWrite,
+    VisualStyleImageRead,
+    VisualStyleImageWrite,
+    VisualStyleRead,
+    VisualStyleUpdate,
 )
 from app.schemas.user import UserRead
 from app.services import project as project_service
@@ -56,6 +64,12 @@ class ProjectView(BaseView):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
         if isinstance(exc, project_service.ProjectMemberConflictError):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        if isinstance(exc, project_service.VisualStyleNotFoundError):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        if isinstance(exc, project_service.VisualStyleConflictError):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        if isinstance(exc, project_service.VisualStyleValidationError):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         raise exc
 
     @route(
@@ -409,6 +423,250 @@ class ProjectView(BaseView):
                 user_public_id,
                 current_user_public_id,
             )
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @route(
+        "/visual-styles",
+        methods=["GET"],
+        response_model=list[VisualStyleRead],
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="获取视觉风格列表",
+        description="获取已启用的视觉风格目录列表；超级管理员可操作。",
+    )
+    async def list_visual_styles(self, request: Request, session: SessionDep) -> list[VisualStyleRead]:
+        """获取视觉风格列表。"""
+        try:
+            return await project_service.list_visual_styles(session)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/visual-styles",
+        methods=["POST"],
+        response_model=VisualStyleRead,
+        status_code=status.HTTP_201_CREATED,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="创建视觉风格",
+        description="创建视觉风格目录，写入 Markdown 文件和图片；仅超级管理员可操作。",
+    )
+    async def create_visual_style(
+        self,
+        payload: VisualStyleCreate,
+        request: Request,
+        session: SessionDep,
+    ) -> VisualStyleRead:
+        """创建视觉风格。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await project_service.create_visual_style(session, current_user_public_id, payload)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/visual-styles/{style_path}",
+        methods=["GET"],
+        response_model=VisualStyleRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="获取视觉风格详情",
+        description="获取指定视觉风格的 Markdown 文件和图片元数据；超级管理员可操作。",
+    )
+    async def get_visual_style(
+        self,
+        style_path: str,
+        request: Request,
+        session: SessionDep,
+    ) -> VisualStyleRead:
+        """获取视觉风格详情。"""
+        try:
+            return await project_service.get_visual_style(session, style_path)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/visual-styles/{style_path}",
+        methods=["PUT"],
+        response_model=VisualStyleRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="更新视觉风格",
+        description="创建或覆盖视觉风格 Markdown 文件和图片；仅超级管理员可操作。",
+    )
+    async def update_visual_style(
+        self,
+        style_path: str,
+        payload: VisualStyleUpdate,
+        request: Request,
+        session: SessionDep,
+    ) -> VisualStyleRead:
+        """更新视觉风格。"""
+        try:
+            return await project_service.update_visual_style(session, style_path, payload)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/visual-styles/{style_path}",
+        methods=["DELETE"],
+        status_code=status.HTTP_204_NO_CONTENT,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="删除视觉风格",
+        description="删除视觉风格目录；仅超级管理员可操作。",
+    )
+    async def delete_visual_style(
+        self,
+        style_path: str,
+        request: Request,
+        session: SessionDep,
+    ) -> Response:
+        """删除视觉风格。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            await project_service.delete_visual_style(session, current_user_public_id, style_path)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @route(
+        "/visual-styles/{style_path}/files/{file_path:path}",
+        methods=["GET"],
+        response_model=VisualStyleFileRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="读取视觉风格文件",
+        description="读取视觉风格目录中的单个 Markdown 文件；超级管理员可操作。",
+    )
+    async def read_visual_style_file(
+        self,
+        style_path: str,
+        file_path: str,
+        request: Request,
+        session: SessionDep,
+    ) -> VisualStyleFileRead:
+        """读取视觉风格文件。"""
+        try:
+            return await project_service.read_visual_style_file(session, style_path, file_path)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/visual-styles/{style_path}/files/{file_path:path}",
+        methods=["PUT"],
+        response_model=VisualStyleFileRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="写入视觉风格文件",
+        description="创建或覆盖视觉风格目录中的单个 Markdown 文件；仅超级管理员可操作。",
+    )
+    async def write_visual_style_file(
+        self,
+        style_path: str,
+        file_path: str,
+        payload: VisualStyleFileWrite,
+        request: Request,
+        session: SessionDep,
+    ) -> VisualStyleFileRead:
+        """写入视觉风格文件。"""
+        try:
+            file_payload = payload.model_copy(update={"path": file_path})
+            return await project_service.write_visual_style_file(
+                session,
+                style_path,
+                file_payload,
+            )
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/visual-styles/{style_path}/files/{file_path:path}",
+        methods=["DELETE"],
+        status_code=status.HTTP_204_NO_CONTENT,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="删除视觉风格文件",
+        description="删除视觉风格目录中的单个 Markdown 文件；仅超级管理员可操作。",
+    )
+    async def delete_visual_style_file(
+        self,
+        style_path: str,
+        file_path: str,
+        request: Request,
+        session: SessionDep,
+    ) -> Response:
+        """删除视觉风格文件。"""
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            await project_service.delete_visual_style_file(session, current_user_public_id, style_path, file_path)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @route(
+        "/visual-styles/{style_path}/images/{filename}",
+        methods=["GET"],
+        summary="获取视觉风格图片",
+        description="获取视觉风格目录 images 子目录中的单个图片，可从 CSS url() 或 HTML src 直接访问。",
+    )
+    async def get_visual_style_image(
+        self,
+        style_path: str,
+        filename: str,
+        request: Request,
+        session: SessionDep,
+    ) -> FileResponse:
+        """获取视觉风格图片。"""
+        try:
+            image_path = await project_service.get_visual_style_image_path(
+                session,
+                style_path,
+                filename,
+            )
+            return FileResponse(image_path, filename=filename)
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/visual-styles/{style_path}/images/{filename}",
+        methods=["PUT"],
+        response_model=VisualStyleImageRead,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="写入视觉风格图片",
+        description="创建或覆盖视觉风格目录 images 子目录中的单个图片；仅超级管理员可操作。",
+    )
+    async def write_visual_style_image(
+        self,
+        style_path: str,
+        filename: str,
+        payload: VisualStyleImageWrite,
+        request: Request,
+        session: SessionDep,
+    ) -> VisualStyleImageRead:
+        """写入视觉风格图片。"""
+        try:
+            image_payload = payload.model_copy(update={"filename": filename})
+            return await project_service.write_visual_style_image(
+                session,
+                style_path,
+                image_payload,
+            )
+        except project_service.ProjectServiceError as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/visual-styles/{style_path}/images/{filename}",
+        methods=["DELETE"],
+        status_code=status.HTTP_204_NO_CONTENT,
+        middlewares=PROJECT_ROUTE_MIDDLEWARES,
+        summary="删除视觉风格图片",
+        description="删除视觉风格目录 images 子目录中的单个图片；仅超级管理员可操作。",
+    )
+    async def delete_visual_style_image(
+        self,
+        style_path: str,
+        filename: str,
+        request: Request,
+        session: SessionDep,
+    ) -> Response:
+        """删除视觉风格图片。"""
+        try:
+            await project_service.delete_visual_style_image(session, style_path, filename)
         except project_service.ProjectServiceError as exc:
             self._raise_as_http(exc)
         return Response(status_code=status.HTTP_204_NO_CONTENT)

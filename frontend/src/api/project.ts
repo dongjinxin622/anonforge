@@ -49,6 +49,7 @@ export interface ProjectMemberRecord {
   id: number
   project_id: number
   user_public_id: string
+  user_email: string | null
   role: ProjectMemberRole
   joined_at: string
 }
@@ -72,7 +73,29 @@ export interface UserRecord {
   updated_at: string
 }
 
+export interface VisualStyleFileRecord {
+  path: string
+  content: string
+  size_bytes: number
+}
+
+export interface VisualStyleImageRecord {
+  filename: string
+  path: string
+  url: string
+  size_bytes: number
+}
+
+export interface VisualStyleRecord {
+  style_path: string
+  name: string
+  files: VisualStyleFileRecord[]
+  images: VisualStyleImageRecord[]
+}
+
 export const listProjectsApi = () => request.get<ProjectRecord[]>('/projects/')
+
+export const listVisualStylesApi = () => request.get<VisualStyleRecord[]>('/projects/visual-styles')
 
 export const searchProjectsByNameApi = (name: string) => (
   request.get<ProjectRecord[]>('/projects/search/by-name', { params: { name } })
