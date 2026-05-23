@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class UserBase(BaseModel):
@@ -80,3 +80,72 @@ class UserLoginResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
     user: LoginUserInfo
+
+
+class UserProfileUpdate(BaseModel):
+    """当前登录用户个人资料更新模型。"""
+
+    username: str | None = Field(default=None, min_length=3, max_length=64)
+    nickname: str | None = Field(default=None, max_length=64)
+    email: str | None = Field(default=None, max_length=255)
+
+
+class UserPasswordUpdate(BaseModel):
+    """当前登录用户密码修改模型。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    old_password: str = Field(
+        min_length=6,
+        max_length=128,
+        validation_alias=AliasChoices("old_password", "oldPassword"),
+    )
+    new_password: str = Field(
+        min_length=8,
+        max_length=128,
+        validation_alias=AliasChoices("new_password", "newPassword"),
+    )
+    confirm_password: str = Field(
+        min_length=8,
+        max_length=128,
+        validation_alias=AliasChoices("confirm_password", "confirmPassword"),
+    )
+
+    @model_validator(mode="after")
+    def validate_new_password(self) -> "UserPasswordUpdate":
+        if self.new_password != self.confirm_password:
+            raise ValueError("新密码与确认密码不一致")
+        if self.old_password == self.new_password:
+            raise ValueError("新密码不能与当前密码相同")
+        return self
+
+
+class UserAvatarUpdate(BaseModel):
+    """当前登录用户头像更新模型。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    avatar_url: str | None = Field(
+        default=None,
+        max_length=512,
+        validation_alias=AliasChoices("avatar_url", "avatarUrl"),
+    )
+
+
+class TokenRefreshRequest(BaseModel):
+    """刷新 access token 请求。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    refresh_token: str = Field(
+        min_length=1,
+        validation_alias=AliasChoices("refresh_token", "refreshToken"),
+    )
+
+
+class TokenRefreshResponse(BaseModel):
+    """刷新 access token 响应。"""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int

@@ -15,6 +15,11 @@ from app.core.config import BASE_DIR, settings
 from app.models.project import Project, ProjectMember, ProjectMemberRole
 from app.models.user import User
 from app.schemas.project import (
+    DirectorManualFileRead,
+    DirectorManualFileWrite,
+    DirectorManualImageRead,
+    DirectorManualImageWrite,
+    DirectorManualRead,
     ProjectCreate,
     ProjectMemberRead,
     ProjectUpdate,
@@ -63,6 +68,17 @@ class VisualStyleConflictError(ProjectServiceError):
 
 class VisualStyleValidationError(ProjectServiceError):
     """视觉风格文件校验不合法。"""
+
+
+class DirectorManualNotFoundError(ProjectServiceError):
+    """导演手册不存在。"""
+
+
+class DirectorManualValidationError(ProjectServiceError):
+    """导演手册参数校验不合法。"""
+
+
+MANUAL_PATH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$")
 
 
 async def get_project_by_id(
@@ -919,3 +935,240 @@ def _payload_contains_file(files: list[VisualStyleFileWrite] | None, file_path: 
     """判断文件写入列表中是否包含指定的路径。"""
     expected = file_path.replace("\\", "/").lower()
     return any(item.path.replace("\\", "/").lower() == expected for item in files or [])
+
+
+# ── 导演手册（Director Manual）文件系统管理 ──
+
+async def list_director_manuals(session: AsyncSession) -> list[DirectorManualRead]:
+    """列出根目录中的全部导演手册。"""
+    root = _director_manual_root()
+    root.mkdir(parents=True, exist_ok=True)
+    manuals = []
+    for manual_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+        manuals.append(_read_director_manual(manual_dir.name))
+    return manuals
+
+
+async def read_director_manual_file(
+    session: AsyncSession,
+    manual_path: str,
+    file_path: str,
+) -> DirectorManualFileRead:
+    """读取导演手册目录中的单个 Markdown 文件。"""
+    manual_dir = _existing_director_manual_dir(manual_path)
+    target = _resolve_director_manual_markdown_file(manual_dir, file_path)
+    if not target.exists() or not target.is_file():
+        raise DirectorManualNotFoundError("Director manual file not found")
+    return _read_director_manual_file(manual_dir, target)
+
+
+async def write_director_manual_file(
+    session: AsyncSession,
+    manual_path: str,
+    payload: DirectorManualFileWrite,
+) -> DirectorManualFileRead:
+    """创建或覆盖导演手册目录中的单个 Markdown 文件。"""
+    manual_dir = _director_manual_dir(manual_path)
+    target = _resolve_director_manual_markdown_file(manual_dir, payload.path)
+    if not manual_dir.exists():
+        raise DirectorManualNotFoundError("Director manual not found")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(payload.content, encoding="utf-8")
+    return _read_director_manual_file(manual_dir, target)
+
+
+async def delete_director_manual_file(
+    session: AsyncSession,
+    current_user_public_id: str,
+    manual_path: str,
+    file_path: str,
+) -> None:
+    """删除导演手册目录中的单个 Markdown 文件。"""
+    await _ensure_superuser(session, current_user_public_id)
+    manual_dir = _existing_director_manual_dir(manual_path)
+    target = _resolve_director_manual_markdown_file(manual_dir, file_path)
+    if not target.exists() or not target.is_file():
+        raise DirectorManualNotFoundError("Director manual file not found")
+    target.unlink()
+
+
+async def get_director_manual_image_path(
+    session: AsyncSession,
+    manual_path: str,
+    filename: str,
+) -> Path:
+    """返回导演手册图片的本地路径。"""
+    manual_dir = _existing_director_manual_dir(manual_path)
+    target = _resolve_director_manual_image_file(manual_dir, filename)
+    if not target.exists() or not target.is_file():
+        raise DirectorManualNotFoundError("Director manual image not found")
+    return target
+
+
+async def write_director_manual_image(
+    session: AsyncSession,
+    manual_path: str,
+    payload: DirectorManualImageWrite,
+) -> DirectorManualImageRead:
+    """创建或覆盖导演手册目录中的单个图片。"""
+    manual_dir = _existing_director_manual_dir(manual_path)
+    return _write_director_manual_image_unchecked(manual_dir, payload)
+
+
+async def delete_director_manual_image(
+    session: AsyncSession,
+    manual_path: str,
+    filename: str,
+) -> None:
+    """删除导演手册目录中的单个图片。"""
+    manual_dir = _existing_director_manual_dir(manual_path)
+    target = _resolve_director_manual_image_file(manual_dir, filename)
+    if not target.exists() or not target.is_file():
+        raise DirectorManualNotFoundError("Director manual image not found")
+    target.unlink()
+
+
+def _director_manual_root() -> Path:
+    """返回配置中的导演手册根目录。"""
+    configured = Path(settings.director_manual_root).expanduser()
+    root = configured if configured.is_absolute() else BASE_DIR / configured
+    return root.resolve()
+
+
+def _director_manual_dir(manual_path: str) -> Path:
+    """校验并返回导演手册目录路径。"""
+    safe_path = _validate_manual_path(manual_path)
+    root = _director_manual_root()
+    manual_dir = (root / safe_path).resolve()
+    _ensure_manual_path_inside(manual_dir, root)
+    return manual_dir
+
+
+def _existing_director_manual_dir(manual_path: str) -> Path:
+    """返回已存在的导演手册目录。"""
+    manual_dir = _director_manual_dir(manual_path)
+    if not manual_dir.exists() or not manual_dir.is_dir():
+        raise DirectorManualNotFoundError("Director manual not found")
+    return manual_dir
+
+
+def _validate_manual_path(manual_path: str) -> str:
+    """校验导演手册目录名，防止路径穿越和非法目录。"""
+    value = manual_path.strip()
+    if not MANUAL_PATH_PATTERN.fullmatch(value) or value in {".", ".."} or value.isdigit():
+        raise DirectorManualValidationError("Invalid director manual path")
+    return value
+
+
+def _resolve_director_manual_markdown_file(manual_dir: Path, file_path: str) -> Path:
+    """解析导演手册目录内的 Markdown 文件路径。"""
+    raw = file_path.strip().replace("\\", "/")
+    path = Path(raw)
+    if not raw or path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise DirectorManualValidationError("Invalid director manual file path")
+    if path.suffix.lower() != ".md":
+        raise DirectorManualValidationError("Director manual file must be a .md file")
+
+    target = (manual_dir / path).resolve()
+    _ensure_manual_path_inside(target, manual_dir)
+    return target
+
+
+def _resolve_director_manual_image_file(manual_dir: Path, filename: str) -> Path:
+    """解析导演手册目录 images 子目录内的图片路径。"""
+    raw = filename.strip()
+    path = Path(raw)
+    if not raw or path.name != raw or path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise DirectorManualValidationError("Invalid director manual image filename")
+
+    images_dir = (manual_dir / IMAGES_DIR_NAME).resolve()
+    target = (images_dir / path.name).resolve()
+    _ensure_manual_path_inside(target, images_dir)
+    return target
+
+
+def _ensure_manual_path_inside(path: Path, root: Path) -> None:
+    """确保目标路径没有逃逸出指定根目录。"""
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise DirectorManualValidationError("Path escapes director manual root") from exc
+
+
+def _read_director_manual(manual_path: str) -> DirectorManualRead:
+    """从文件系统读取导演手册完整数据。"""
+    manual_dir = _existing_director_manual_dir(manual_path)
+    files = [
+        _read_director_manual_file(manual_dir, file_path)
+        for file_path in sorted(manual_dir.rglob("*.md"))
+        if file_path.is_file()
+    ]
+    images_dir = manual_dir / IMAGES_DIR_NAME
+    images = []
+    if images_dir.exists() and images_dir.is_dir():
+        images = [
+            _read_director_manual_image(manual_dir, image_path)
+            for image_path in sorted(images_dir.iterdir())
+            if image_path.is_file()
+        ]
+    return DirectorManualRead(
+        manual_path=manual_dir.name,
+        name=_read_director_manual_name(manual_dir),
+        files=files,
+        images=images,
+    )
+
+
+def _read_director_manual_file(manual_dir: Path, file_path: Path) -> DirectorManualFileRead:
+    """读取单个 Markdown 文件。"""
+    return DirectorManualFileRead(
+        path=file_path.relative_to(manual_dir).as_posix(),
+        content=file_path.read_text(encoding="utf-8"),
+        size_bytes=file_path.stat().st_size,
+    )
+
+
+def _read_director_manual_image(manual_dir: Path, image_path: Path) -> DirectorManualImageRead:
+    """读取单个图片元数据。"""
+    filename = image_path.name
+    return DirectorManualImageRead(
+        filename=filename,
+        path=image_path.relative_to(manual_dir).as_posix(),
+        url=_director_manual_image_url(manual_dir.name, filename),
+        size_bytes=image_path.stat().st_size,
+    )
+
+
+def _director_manual_image_url(manual_path: str, filename: str) -> str:
+    """生成可直接给前端访问的导演手册图片 URL。"""
+    api_prefix = settings.api_prefix.strip()
+    if api_prefix and not api_prefix.startswith("/"):
+        api_prefix = f"/{api_prefix}"
+    api_prefix = api_prefix.rstrip("/")
+    return (
+        f"{api_prefix}/projects/director-manuals/"
+        f"{quote(manual_path, safe='')}/images/{quote(filename, safe='')}"
+    )
+
+
+def _write_director_manual_image_unchecked(
+    manual_dir: Path,
+    payload: DirectorManualImageWrite,
+) -> DirectorManualImageRead:
+    """写入图片，该方法不校验权限和手册目录存在性。"""
+    target = _resolve_director_manual_image_file(manual_dir, payload.filename)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(_decode_image_data(payload.data))
+    return _read_director_manual_image(manual_dir, target)
+
+
+def _read_director_manual_name(manual_dir: Path) -> str:
+    """从 README 第一行读取导演手册展示名称。"""
+    readme = manual_dir / "README.md"
+    if not readme.exists():
+        return manual_dir.name
+    for line in readme.read_text(encoding="utf-8").splitlines():
+        value = line.strip().lstrip("#").strip()
+        if value:
+            return value
+    return manual_dir.name

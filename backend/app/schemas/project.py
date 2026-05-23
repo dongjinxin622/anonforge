@@ -131,3 +131,50 @@ class VisualStyleUpdate(BaseModel):
     files: list[VisualStyleFileWrite] | None = Field(default=None, description="需创建或覆盖的 Markdown 文件。")
     images: list[VisualStyleImageWrite] | None = Field(default=None, description="需创建或覆盖的图片。")
     replace_images: bool = Field(default=False, description="是否先清空 images 目录中的所有图片。")
+
+
+class DirectorManualFileRead(BaseModel):
+    """导演手册 Markdown 文件读取结果。"""
+
+    path: str = Field(description="相对于导演手册目录的 Markdown 文件路径。")
+    content: str = Field(description="Markdown 文件内容。")
+    size_bytes: int = Field(ge=0, description="文件大小，单位字节。")
+
+
+class DirectorManualFileWrite(BaseModel):
+    """导演手册 Markdown 文件写入请求。"""
+
+    path: str = Field(default="", max_length=255, description="相对于导演手册目录的 Markdown 文件路径。")
+    content: str = Field(default="", description="Markdown 文件内容。")
+
+    @field_validator("path")
+    @classmethod
+    def validate_markdown_path(cls, value: str) -> str:
+        if value and not value.lower().endswith(".md"):
+            raise ValueError("导演手册文件必须是 .md 文件")
+        return value
+
+
+class DirectorManualImageRead(BaseModel):
+    """导演手册图片读取结果。"""
+
+    filename: str = Field(description="图片文件名。")
+    path: str = Field(description="相对于导演手册目录的图片路径。")
+    url: str = Field(description="可直接用于 CSS url() 或 HTML src 的图片访问 URL。")
+    size_bytes: int = Field(ge=0, description="文件大小，单位字节。")
+
+
+class DirectorManualImageWrite(BaseModel):
+    """导演手册图片写入请求。"""
+
+    filename: str = Field(default="", max_length=120, description="图片文件名。")
+    data: str = Field(description="图片 base64 数据，可包含 data URI 前缀。")
+
+
+class DirectorManualRead(BaseModel):
+    """导演手册完整读取结果。"""
+
+    manual_path: str = Field(description="导演手册目录名。")
+    name: str = Field(default="", description="导演手册展示名称。")
+    files: list[DirectorManualFileRead] = Field(default_factory=list, description="Markdown 文件列表。")
+    images: list[DirectorManualImageRead] = Field(default_factory=list, description="图片文件列表。")

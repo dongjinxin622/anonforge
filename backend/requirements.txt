@@ -6,7 +6,9 @@ pillow
 httpx
 crewai
 pytest
+pytest-asyncio
+aiosqlite
 alembic
 redis
-PyJWT 
+PyJWT
 bcrypt

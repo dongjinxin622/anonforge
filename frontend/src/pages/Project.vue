@@ -26,7 +26,7 @@
           </el-tooltip>
 
           <el-tooltip content="设置" placement="right">
-            <button class="nav-btn" aria-label="设置" @click="showComingSoon">
+            <button class="nav-btn" aria-label="设置" @click="settingsVisible = true">
               <el-icon><Setting /></el-icon>
             </button>
           </el-tooltip>
@@ -91,13 +91,13 @@
             <template #header>
               <div class="card-head">
                 <h2 class="project-name">{{ project.name }}</h2>
-                <el-tag class="source-tag" effect="plain" round>{{ contentTypeLabel(project.content_type) }}</el-tag>
+                <el-tag class="source-tag" effect="plain" round>{{ contentTypeLabel(project.project_type) }}</el-tag>
               </div>
             </template>
 
             <div class="tag-row">
               <el-tag class="model-tag" type="primary" effect="plain" round>
-                {{ project.art_style || '未设置风格' }}
+                {{ getArtStyleLabel(project.art_style) || project.art_style || '未设置风格' }}
               </el-tag>
               <el-tag class="ratio-tag" effect="plain" round>
                 {{ project.video_ratio }}
@@ -156,75 +156,254 @@
     <el-dialog
       v-model="projectDialogVisible"
       :title="projectDialogTitle"
-      width="720px"
+      width="1080px"
       destroy-on-close
+      class="project-dark-dialog"
     >
       <el-form
         ref="projectFormRef"
         :model="projectForm"
         :rules="projectRules"
         class="project-form"
-        label-width="110px"
+        label-position="top"
       >
-        <el-form-item label="项目名称" prop="name">
-          <el-input v-model="projectForm.name" maxlength="100" show-word-limit />
-        </el-form-item>
+        <div class="dialog-grid-2col">
+          <!-- 左栏：基础信息 -->
+          <div class="form-col form-col--left">
+            <el-form-item label="项目名称" prop="name">
+              <el-input v-model="projectForm.name" maxlength="100" placeholder="请输入项目名称" show-word-limit />
+            </el-form-item>
 
-        <el-form-item label="项目简介" prop="intro">
-          <el-input v-model="projectForm.intro" maxlength="2000" rows="4" show-word-limit type="textarea" />
-        </el-form-item>
+            <div class="form-grid">
+              <el-form-item label="项目类型" prop="project_type">
+                <el-select v-model="projectForm.project_type" popper-class="project-dark-select" placeholder="选择项目类型">
+                  <el-option label="基于小说" value="novel" />
+                  <el-option label="基于剧本" value="script" />
+                  <el-option label="原创短剧" value="original" />
+                </el-select>
+              </el-form-item>
 
-        <div class="form-grid">
-          <el-form-item label="项目类型" prop="project_type">
-            <el-input v-model="projectForm.project_type" />
-          </el-form-item>
+              <el-form-item label="内容类型" prop="content_type">
+                <el-input v-model="projectForm.content_type" placeholder="如:玄幻、科幻、言情" />
+              </el-form-item>
 
-          <el-form-item label="内容类型" prop="content_type">
-            <el-input v-model="projectForm.content_type" />
-          </el-form-item>
+              <el-form-item label="选择图像模型" prop="image_model">
+                <el-select
+                  v-model="projectForm.image_model"
+                  popper-class="project-dark-select project-model-select"
+                  placeholder="请选择图像模型"
+                >
+                  <el-option-group
+                    v-for="group in imageModelPresets"
+                    :key="group.platform"
+                    :label="group.platform"
+                  >
+                    <el-option
+                      v-for="item in group.models"
+                      :key="item.value"
+                      :label="item.label"
+                      :value="item.value"
+                    >
+                      <span class="model-option">
+                        <span class="model-option__main">
+                          <img class="model-option__icon" :src="group.icon" :alt="group.platform" />
+                          <span class="model-option__name">{{ item.label }}</span>
+                        </span>
+                        <span class="model-option__category">{{ item.category }}</span>
+                      </span>
+                    </el-option>
+                  </el-option-group>
+                </el-select>
+              </el-form-item>
 
-          <el-form-item label="艺术风格" prop="art_style">
-            <el-input v-model="projectForm.art_style" />
-          </el-form-item>
+              <el-form-item label="生成图像质量" prop="image_quality">
+                <el-select v-model="projectForm.image_quality" popper-class="project-dark-select" placeholder="质量">
+                  <el-option label="1K" value="1K" />
+                  <el-option label="2K" value="2K" />
+                  <el-option label="4K" value="4K" />
+                </el-select>
+              </el-form-item>
 
-          <el-form-item label="画幅比例" prop="video_ratio">
-            <el-select v-model="projectForm.video_ratio">
-              <el-option label="9:16" value="9:16" />
-              <el-option label="16:9" value="16:9" />
-              <el-option label="1:1" value="1:1" />
-            </el-select>
-          </el-form-item>
+              <el-form-item label="选择视频模型" prop="video_model">
+                <el-select
+                  v-model="projectForm.video_model"
+                  popper-class="project-dark-select project-model-select"
+                  placeholder="请选择视频模型"
+                >
+                  <el-option-group
+                    v-for="group in videoModelPresets"
+                    :key="group.platform"
+                    :label="group.platform"
+                  >
+                    <el-option
+                      v-for="item in group.models"
+                      :key="item.value"
+                      :label="item.label"
+                      :value="item.value"
+                    >
+                      <span class="model-option">
+                        <span class="model-option__main">
+                          <img class="model-option__icon" :src="group.icon" :alt="group.platform" />
+                          <span class="model-option__name">{{ item.label }}</span>
+                        </span>
+                        <span class="model-option__category">{{ item.category }}</span>
+                      </span>
+                    </el-option>
+                  </el-option-group>
+                </el-select>
+              </el-form-item>
 
-          <el-form-item label="图像模型" prop="image_model">
-            <el-input v-model="projectForm.image_model" />
-          </el-form-item>
+              <el-form-item label="视频生成模式" prop="mode">
+                <el-select v-model="projectForm.mode" popper-class="project-dark-select" placeholder="模式">
+                  <el-option label="文生视频" value="text" />
+                  <el-option label="单图参考" value="singleImage" />
+                  <el-option label="必须首尾帧" value="startEndRequired" />
+                  <el-option label="尾帧可选" value="endFrameOptional" />
+                  <el-option label="首帧可选" value="startFrameOptional" />
+                </el-select>
+              </el-form-item>
+            </div>
 
-          <el-form-item label="视频模型" prop="video_model">
-            <el-input v-model="projectForm.video_model" />
-          </el-form-item>
+            <el-form-item label="画幅比例" prop="video_ratio">
+              <el-select v-model="projectForm.video_ratio" popper-class="project-dark-select">
+                <el-option label="9:16 竖屏" value="9:16" />
+                <el-option label="16:9 横屏" value="16:9" />
+              </el-select>
+            </el-form-item>
 
-          <el-form-item label="图像质量" prop="image_quality">
-            <el-select v-model="projectForm.image_quality">
-              <el-option label="standard" value="standard" />
-              <el-option label="hd" value="hd" />
-              <el-option label="high" value="high" />
-            </el-select>
-          </el-form-item>
+            <el-form-item label="项目简介" prop="intro">
+              <el-input v-model="projectForm.intro" maxlength="2000" :rows="4" placeholder="一句话描述项目主题、世界观或目标受众" show-word-limit type="textarea" />
+            </el-form-item>
+          </div>
 
-          <el-form-item label="生成模式" prop="mode">
-            <el-select v-model="projectForm.mode">
-              <el-option label="纯文本生成视频" value="text" />
-              <el-option label="单图参考" value="singleImage" />
-              <el-option label="必须首尾帧" value="startEndRequired" />
-              <el-option label="尾帧可选" value="endFrameOptional" />
-              <el-option label="首帧可选" value="startFrameOptional" />
-            </el-select>
-          </el-form-item>
+          <!-- 右栏：视觉风格 + 导演风格 -->
+          <div class="form-col form-col--right">
+            <section class="panel-card">
+              <header class="panel-card__head">
+                <h3 class="panel-card__title">视觉风格</h3>
+                <span class="panel-card__hint">{{ activeArtStyleLabel || '未选择' }}</span>
+              </header>
+              <el-form-item prop="art_style" class="panel-card__field">
+                <div
+                  v-loading="artStylesLoading"
+                  class="style-grid"
+                  element-loading-background="rgba(13, 17, 23, 0.55)"
+                >
+                  <el-empty
+                    v-if="!artStylesLoading && artStylePresets.length === 0"
+                    class="style-empty"
+                    description="暂无视觉风格"
+                  />
+                  <button
+                    v-for="preset in artStylePresets"
+                    :key="preset.style_path"
+                    type="button"
+                    class="style-card"
+                    :class="{ 'is-active': projectForm.art_style === preset.style_path }"
+                    @click="projectForm.art_style = preset.style_path"
+                  >
+                    <span
+                      class="style-card__image"
+                      :style="{ backgroundImage: getArtStyleBackground(preset) }"
+                    ></span>
+                    <span class="style-card__overlay"></span>
+                    <span
+                      class="style-card__zoom"
+                      role="button"
+                      tabindex="0"
+                      aria-label="预览图片"
+                      title="预览图片"
+                      @click.stop="openStylePreview(preset)"
+                      @keydown.enter.stop.prevent="openStylePreview(preset)"
+                      @keydown.space.stop.prevent="openStylePreview(preset)"
+                    >
+                      <el-icon><ZoomIn /></el-icon>
+                    </span>
+                    <span
+                      class="style-card__edit"
+                      role="button"
+                      tabindex="0"
+                      aria-label="编辑视觉风格"
+                      title="编辑视觉风格"
+                      @click.stop="showComingSoon"
+                      @keydown.enter.stop.prevent="showComingSoon"
+                      @keydown.space.stop.prevent="showComingSoon"
+                    >
+                      <el-icon><EditPen /></el-icon>
+                    </span>
+                    <span class="style-card__text">
+                      <strong class="style-card__title">{{ preset.style_path }}</strong>
+                      <em class="style-card__subtitle">{{ preset.name }}</em>
+                    </span>
+                  </button>
+                </div>
+              </el-form-item>
+            </section>
+
+            <section class="panel-card">
+              <header class="panel-card__head">
+                <h3 class="panel-card__title">导演风格</h3>
+                <span class="panel-card__hint">{{ activeDirectorStyleLabel || '未选择' }}</span>
+              </header>
+              <el-form-item prop="director_manual" class="panel-card__field">
+                <div
+                  v-loading="directorStylesLoading"
+                  class="director-grid"
+                  element-loading-background="rgba(13, 17, 23, 0.55)"
+                >
+                  <el-empty
+                    v-if="!directorStylesLoading && directorStylePresets.length === 0"
+                    class="style-empty"
+                    description="暂无导演风格"
+                  />
+                  <button
+                    v-for="preset in directorStylePresets"
+                    v-else
+                    :key="preset.manual_path"
+                    type="button"
+                    class="director-card"
+                    :class="{ 'is-active': projectForm.director_manual === preset.manual_path }"
+                    @click="projectForm.director_manual = preset.manual_path"
+                  >
+                    <span
+                      class="director-card__image"
+                      :style="{ backgroundImage: getDirectorStyleBackground(preset) }"
+                    ></span>
+                    <span class="director-card__overlay"></span>
+                    <span
+                      class="director-card__zoom"
+                      role="button"
+                      tabindex="0"
+                      aria-label="预览图片"
+                      title="预览图片"
+                      @click.stop="openDirectorPreview(preset)"
+                      @keydown.enter.stop.prevent="openDirectorPreview(preset)"
+                      @keydown.space.stop.prevent="openDirectorPreview(preset)"
+                    >
+                      <el-icon><ZoomIn /></el-icon>
+                    </span>
+                    <span
+                      class="director-card__edit"
+                      role="button"
+                      tabindex="0"
+                      aria-label="编辑导演风格"
+                      title="编辑导演风格"
+                      @click.stop="showComingSoon"
+                      @keydown.enter.stop.prevent="showComingSoon"
+                      @keydown.space.stop.prevent="showComingSoon"
+                    >
+                      <el-icon><EditPen /></el-icon>
+                    </span>
+                    <span class="director-card__text">
+                      <strong class="director-card__title">{{ preset.manual_path }}</strong>
+                      <em class="director-card__subtitle">{{ preset.name }}</em>
+                    </span>
+                  </button>
+                </div>
+              </el-form-item>
+            </section>
+          </div>
         </div>
-
-        <el-form-item label="导演手册" prop="director_manual">
-          <el-input v-model="projectForm.director_manual" maxlength="4000" rows="5" show-word-limit type="textarea" />
-        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -240,6 +419,7 @@
       :title="memberDialogTitle"
       width="760px"
       destroy-on-close
+      class="project-dark-dialog"
     >
       <section class="member-search">
         <el-input
@@ -252,7 +432,7 @@
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
-        <el-select v-model="inviteRole" class="role-select">
+        <el-select v-model="inviteRole" class="role-select" popper-class="project-dark-select">
           <el-option label="管理员" value="admin" />
           <el-option label="管理者" value="manager" />
           <el-option label="编辑者" value="editor" />
@@ -285,13 +465,14 @@
         element-loading-background="rgba(13, 17, 23, 0.55)"
         size="small"
       >
-        <el-table-column prop="user_public_id" label="成员 ID" min-width="240" />
+        <el-table-column prop="user_email" label="成员 邮箱" min-width="240" />
         <el-table-column label="角色" width="160">
           <template #default="{ row }">
             <el-select
               v-model="row.role"
               :disabled="row.role === 'owner'"
               size="small"
+              popper-class="project-dark-select"
               @change="updateMemberRole(row)"
             >
               <el-option label="所有者" value="owner" disabled />
@@ -319,6 +500,17 @@
         </el-table-column>
       </el-table>
     </el-dialog>
+
+    <el-image-viewer
+      v-if="previewVisible"
+      :url-list="previewUrls"
+      :initial-index="previewIndex"
+      hide-on-click-modal
+      teleported
+      @close="previewVisible = false"
+    />
+
+    <Settings v-model="settingsVisible" />
   </main>
 </template>
 
@@ -340,6 +532,7 @@ import {
   Setting,
   SwitchButton,
   UserFilled,
+  ZoomIn,
 } from '@element-plus/icons-vue'
 import {
   createProjectApi,
@@ -347,22 +540,40 @@ import {
   disableProjectApi,
   enableProjectApi,
   inviteProjectMemberApi,
+  listDirectorManualsApi,
   listProjectMembersApi,
   listProjectsApi,
+  listVisualStylesApi,
   removeProjectMemberApi,
   searchProjectMemberCandidatesApi,
   searchProjectsByNameApi,
   updateProjectApi,
   updateProjectMemberRoleApi,
+  type DirectorManualRecord,
   type ProjectMemberRecord,
   type ProjectMemberRole,
   type ProjectPayload,
   type ProjectRecord,
   type ProjectVideoMode,
   type UserRecord,
+  type VisualStyleImageRecord,
+  type VisualStyleRecord,
 } from '@/api/project'
+import Settings from '../components/Settings.vue'
 
 type ProjectDialogMode = 'create' | 'edit'
+
+interface ArtStylePreset {
+  style_path: string
+  name: string
+  images: VisualStyleRecord['images']
+}
+
+interface DirectorStylePreset {
+  manual_path: string
+  name: string
+  images: DirectorManualRecord['images']
+}
 
 const router = useRouter()
 const projectFormRef = ref<FormInstance>()
@@ -386,20 +597,190 @@ const candidateKeyword = ref('')
 const candidates = ref<UserRecord[]>([])
 const candidatesLoading = ref(false)
 const inviteRole = ref<ProjectMemberRole>('editor')
+const artStylesLoading = ref(false)
+const directorStylesLoading = ref(false)
+
+const settingsVisible = ref(false)
+
+const previewVisible = ref(false)
+const previewUrls = ref<string[]>([])
+const previewIndex = ref(0)
 
 const projectForm = reactive<ProjectPayload>({
   name: '',
   intro: '',
-  project_type: 'novel_to_video',
-  content_type: 'novel',
-  art_style: '3D_chinese_traditional',
+  project_type: 'novel',
+  content_type: '',
+  art_style: '',
   director_manual: '',
   video_ratio: '9:16',
   image_model: '',
   video_model: '',
-  image_quality: 'standard',
+  image_quality: '1K',
   mode: 'text',
 })
+
+const artStylePresets = ref<ArtStylePreset[]>([])
+
+const imageModelPresets = [
+  {
+    platform: '火山引擎',
+    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPjxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjZFMkQiLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNFODM5MkYiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2cpIi8+PHBhdGggZD0iTTEyIDVsNSA5SDd6IiBmaWxsPSIjZmZmIi8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxNyIgcj0iMS40IiBmaWxsPSIjZmZmIi8+PC9zdmc+',
+    models: [
+      { label: 'Seedream-5.0', value: 'doubao-seedream-5-0-260128', category: '图像' },
+      { label: 'Seedream-5.0-Lite', value: 'doubao-seedream-5-0-lite-260128', category: '图像' },
+      { label: 'Seedream-4.5', value: 'doubao-seedream-4-5-251128', category: '图像' },
+    ],
+  },
+  {
+    platform: 'Gemini',
+    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjRkFDQzE1Ii8+PHBhdGggZD0iTTkgNmMtMSA0IDAgOCA0IDEwIDEtMSAxLTMgMC00LTMtMS0zLTQtMS02eiIgZmlsbD0iIzdDMkQxMiIvPjwvc3ZnPg==',
+    models: [
+      { label: 'Nano Banana Pro', value: 'nano-banana-pro', category: '图像' },
+      { label: 'Nano Banana 2', value: 'nano-banana-2', category: '图像' },
+      { label: 'Nano Banana Fast', value: 'nano-banana-fast', category: '图像' },
+    ],
+  },
+  {
+    platform: 'MiniMax',
+    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjMUUzQThBIi8+PHBhdGggZD0iTTUgMTdWOGwzIDQgMy00djlNMTMgMTdWOGwzIDQgMy00djkiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==',
+    models: [
+      { label: '海螺图像V1', value: 'image-01', category: '图像' },
+      { label: '海螺图像V1 Live版', value: 'image-01-live', category: '图像' },
+    ],
+  },
+  {
+    platform: 'Vidu',
+    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjN0MzQUVEIi8+PHBhdGggZD0iTTYgOGw0IDloMmw0LTloLTJsLTMgNy0zLTd6IiBmaWxsPSIjZmZmIi8+PC9zdmc+',
+    models: [
+      { label: 'ViduQ2 for image', value: 'viduq2', category: '图像' },
+      { label: 'ViduQ1 for image', value: 'viduq1', category: '图像' },
+    ],
+  },
+] as const
+
+const videoModelPresets = [
+  {
+    platform: '火山引擎',
+    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPjxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjZFMkQiLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNFODM5MkYiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2cpIi8+PHBhdGggZD0iTTEyIDVsNSA5SDd6IiBmaWxsPSIjZmZmIi8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxNyIgcj0iMS40IiBmaWxsPSIjZmZmIi8+PC9zdmc+',
+    models: [
+      { label: 'Seedance-2.0（音画同生）', value: 'doubao-seedance-2-0-260128', category: '视频' },
+      { label: 'Seedance-2.0-Fast（音画同生）', value: 'doubao-seedance-2-0-fast-260128', category: '视频' },
+      { label: 'Seedance-1.5-Pro（音画同生）', value: 'doubao-seedance-1-5-pro-251215', category: '视频' },
+    ],
+  },
+  {
+    platform: '可灵 KlingAI',
+    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImsiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMjJEM0VFIi8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMjU2M0VCIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNiIgZmlsbD0idXJsKCNrKSIvPjxwYXRoIGQ9Ik05IDZ2MTJNOSAxMmw1LTZNOSAxMmw1IDYiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjgiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==',
+    models: [
+      { label: 'Kling-v3 标准', value: 'kling-v3:std', category: '视频' },
+      { label: 'Kling-v3 专家', value: 'kling-v3:pro', category: '视频' },
+      { label: 'Kling-v2-1 Master', value: 'kling-v2-1-master:pro', category: '视频' },
+    ],
+  },
+  {
+    platform: 'MiniMax',
+    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjMUUzQThBIi8+PHBhdGggZD0iTTUgMTdWOGwzIDQgMy00djlNMTMgMTdWOGwzIDQgMy00djkiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==',
+    models: [
+      { label: '海螺2.3', value: 'MiniMax-Hailuo-2.3', category: '视频' },
+      { label: '海螺2.3 极速版', value: 'MiniMax-Hailuo-2.3-Fast', category: '视频' },
+      { label: '海螺02', value: 'MiniMax-Hailuo-02', category: '视频' },
+    ],
+  },
+  {
+    platform: 'Qwen',
+    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMzREMzk5Ii8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMEVBNUU5Ii8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNiIgZmlsbD0idXJsKCN0KSIvPjxjaXJjbGUgY3g9IjkiIGN5PSIxMCIgcj0iMyIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjEuNiIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjE1IiBjeT0iMTQiIHI9IjMiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIGZpbGw9Im5vbmUiLz48L3N2Zz4=',
+    models: [
+      { label: 'Wan2.6 I2V 1080P', value: 'Wan2.6-I2V-1080P', category: '视频' },
+      { label: 'Wan2.6 I2V 720P', value: 'Wan2.6-I2V-720P', category: '视频' },
+      { label: 'ViduQ3 Pro', value: 'ViduQ3-pro', category: '视频' },
+    ],
+  },
+] as const
+
+const directorStylePresets = ref<DirectorStylePreset[]>([])
+
+const toArtStylePreset = (style: VisualStyleRecord): ArtStylePreset => ({
+  style_path: style.style_path,
+  name: style.name,
+  images: style.images,
+})
+
+const toDirectorStylePreset = (manual: DirectorManualRecord): DirectorStylePreset => ({
+  manual_path: manual.manual_path,
+  name: manual.name,
+  images: manual.images,
+})
+
+const getArtStyleLabel = (value: string) => (
+  artStylePresets.value.find((item) => item.style_path === value)?.style_path ?? ''
+)
+
+const getArtStyleImageUrl = (preset: ArtStylePreset) => {
+  const imageUrl = preset.images[2]?.url ?? preset.images[2]?.path ?? ''
+  return /^(?:https?:|data:|\/)/.test(imageUrl) ? imageUrl : ''
+}
+
+const getArtStyleBackground = (preset: ArtStylePreset) => {
+  const imageUrl = getArtStyleImageUrl(preset)
+  return imageUrl ? `url("${imageUrl}")` : 'linear-gradient(135deg, #475569, #1e293b)'
+}
+
+const getArtStyleAllImageUrls = (preset: ArtStylePreset): string[] => {
+  return preset.images
+    .map((image: VisualStyleImageRecord) => image.url ?? image.path ?? '')
+    .filter((url: string) => /^(?:https?:|data:|\/)/.test(url))
+}
+
+const openStylePreview = (preset: ArtStylePreset) => {
+  const urls = getArtStyleAllImageUrls(preset)
+  if (urls.length === 0) {
+    ElMessage.warning('暂无可预览的图片')
+    return
+  }
+  previewUrls.value = urls
+  previewIndex.value = 0
+  previewVisible.value = true
+}
+
+const getDirectorStyleLabel = (value: string) => (
+  directorStylePresets.value.find((item) => item.manual_path === value)?.manual_path ?? ''
+)
+
+const getDirectorStyleImageUrl = (preset: DirectorStylePreset) => {
+  const imageUrl = preset.images[0]?.url ?? preset.images[0]?.path ?? ''
+  return /^(?:https?:|data:|\/)/.test(imageUrl) ? imageUrl : ''
+}
+
+const getDirectorStyleBackground = (preset: DirectorStylePreset) => {
+  const imageUrl = getDirectorStyleImageUrl(preset)
+  return imageUrl ? `url("${imageUrl}")` : 'linear-gradient(135deg, #475569, #1e293b)'
+}
+
+const getDirectorStyleAllImageUrls = (preset: DirectorStylePreset): string[] => {
+  return preset.images
+    .map((image: DirectorManualRecord['images'][number]) => image.url ?? image.path ?? '')
+    .filter((url: string) => /^(?:https?:|data:|\/)/.test(url))
+}
+
+const openDirectorPreview = (preset: DirectorStylePreset) => {
+  const urls = getDirectorStyleAllImageUrls(preset)
+  if (urls.length === 0) {
+    ElMessage.warning('暂无可预览的图片')
+    return
+  }
+  previewUrls.value = urls
+  previewIndex.value = 0
+  previewVisible.value = true
+}
+
+const activeArtStyleLabel = computed(
+  () => getArtStyleLabel(projectForm.art_style),
+)
+
+const activeDirectorStyleLabel = computed(
+  () => getDirectorStyleLabel(projectForm.director_manual),
+)
 
 const projectRules: FormRules<ProjectPayload> = {
   name: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
@@ -443,6 +824,32 @@ const handleSearch = async () => {
     ElMessage.error(getErrorMessage(error))
   } finally {
     loading.value = false
+  }
+}
+
+const loadVisualStyles = async () => {
+  artStylesLoading.value = true
+  try {
+    const { data } = await listVisualStylesApi()
+    artStylePresets.value = data.map(toArtStylePreset)
+  } catch (error) {
+    artStylePresets.value = []
+    ElMessage.error(getErrorMessage(error))
+  } finally {
+    artStylesLoading.value = false
+  }
+}
+
+const loadDirectorManuals = async () => {
+  directorStylesLoading.value = true
+  try {
+    const { data } = await listDirectorManualsApi()
+    directorStylePresets.value = data.map(toDirectorStylePreset)
+  } catch (error) {
+    directorStylePresets.value = []
+    ElMessage.error(getErrorMessage(error))
+  } finally {
+    directorStylesLoading.value = false
   }
 }
 
@@ -505,6 +912,7 @@ const handleDeleteProject = async (project: ProjectRecord) => {
       cancelButtonText: '取消',
       type: 'warning',
       confirmButtonClass: 'el-button--danger',
+      customClass: 'project-dark-messagebox',
     })
 
     await deleteProjectApi(project.public_id)
@@ -592,6 +1000,7 @@ const removeMember = async (member: ProjectMemberRecord) => {
       cancelButtonText: '取消',
       type: 'warning',
       confirmButtonClass: 'el-button--danger',
+      customClass: 'project-dark-messagebox',
     })
     await removeProjectMemberApi(memberProject.value.public_id, member.user_public_id)
     ElMessage.success('成员已移除')
@@ -614,14 +1023,14 @@ const resetProjectForm = () => {
   Object.assign(projectForm, {
     name: '',
     intro: '',
-    project_type: 'novel_to_video',
-    content_type: 'novel',
-    art_style: '3D_chinese_traditional',
+    project_type: 'novel',
+    content_type: '',
+    art_style: '',
     director_manual: '',
     video_ratio: '9:16',
     image_model: '',
     video_model: '',
-    image_quality: 'standard',
+    image_quality: '1K',
     mode: 'text' as ProjectVideoMode,
   })
 }
@@ -642,9 +1051,9 @@ const pickProjectPayload = (project: ProjectRecord): ProjectPayload => ({
 
 const contentTypeLabel = (contentType: string) => {
   const labels: Record<string, string> = {
-    novel: '小说',
-    script: '剧本',
-    original: '原创',
+    novel: '基于小说',
+    script: '基于剧本',
+    original: '原创短剧',
   }
   return labels[contentType] ?? contentType
 }
@@ -672,7 +1081,11 @@ const showComingSoon = () => {
   ElMessage.info('功能开发中')
 }
 
-onMounted(loadProjects)
+onMounted(() => {
+  void loadProjects()
+  void loadVisualStyles()
+  void loadDirectorManuals()
+})
 </script>
 
 <style scoped>
@@ -827,6 +1240,59 @@ onMounted(loadProjects)
   max-width: 420px;
 }
 
+.toolbar :deep(.el-input__wrapper) {
+  background-color: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  border-radius: 10px;
+  transition: box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.toolbar :deep(.el-input__wrapper:hover) {
+  background-color: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+}
+
+.toolbar :deep(.el-input__wrapper.is-focus) {
+  background-color: rgba(37, 99, 235, 0.08);
+  box-shadow: 0 0 0 1px #2563eb inset;
+}
+
+.toolbar :deep(.el-input__inner) {
+  color: #e6edf3;
+}
+
+.toolbar :deep(.el-input__inner::placeholder) {
+  color: #6e7681;
+}
+
+.toolbar :deep(.el-input__prefix-inner .el-icon),
+.toolbar :deep(.el-input__suffix-inner .el-icon) {
+  color: #8b949e;
+}
+
+.toolbar :deep(.el-button) {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #c5cdd6;
+  font-weight: 500;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.toolbar :deep(.el-button:hover),
+.toolbar :deep(.el-button:focus) {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.toolbar :deep(.el-button:active) {
+  transform: translateY(0);
+}
+
 .create-button {
   height: 38px;
   padding: 0 16px;
@@ -867,6 +1333,32 @@ onMounted(loadProjects)
   gap: 16px 18px;
   align-content: start;
   padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+.project-grid::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.project-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.project-grid::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  border: none;
+  transition: background-color 0.18s ease;
+}
+
+.project-grid::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.24);
+}
+
+.project-grid::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .empty-state {
@@ -1071,7 +1563,7 @@ onMounted(loadProjects)
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 12px;
+  gap: 0 18px;
 }
 
 .member-search {
@@ -1167,5 +1659,1049 @@ onMounted(loadProjects)
   .project-card :deep(.el-card__body) {
     padding: 10px 18px 14px;
   }
+}
+</style>
+
+<style>
+/* 项目页面专用暗色弹窗样式（dialog 与 messagebox 由 element-plus teleport 到 body，需置于非 scoped 块） */
+.project-dark-dialog {
+  background: linear-gradient(180deg, #12161b 0%, #0f141a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  color: #e6edf3;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.project-dark-dialog .el-dialog__header {
+  margin: 0;
+  padding: 24px 30px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+}
+
+.project-dark-dialog .el-dialog__title {
+  color: #f2f4f8;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+}
+
+.project-dark-dialog .el-dialog__headerbtn {
+  top: 18px;
+  right: 22px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.project-dark-dialog .el-dialog__headerbtn .el-dialog__close {
+  color: #8b949e;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.project-dark-dialog .el-dialog__headerbtn:hover,
+.project-dark-dialog .el-dialog__headerbtn:focus {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.project-dark-dialog .el-dialog__headerbtn:hover .el-dialog__close,
+.project-dark-dialog .el-dialog__headerbtn:focus .el-dialog__close {
+  color: #ffffff;
+}
+
+.project-dark-dialog .el-dialog__body {
+  padding: 22px 30px 8px;
+  color: #b8c2cc;
+  background: transparent;
+  max-height: calc(100vh - 240px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+.project-dark-dialog .el-dialog__body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.project-dark-dialog .el-dialog__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.project-dark-dialog .el-dialog__body::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  transition: background-color 0.18s ease;
+}
+
+.project-dark-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.24);
+}
+
+.project-dark-dialog .el-dialog__footer {
+  padding: 18px 30px 24px;
+  background: transparent;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.project-dark-dialog .el-form-item {
+  margin-bottom: 18px;
+}
+
+.project-dark-dialog .el-form-item__label {
+  color: #d5dce4;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 0 0 8px;
+}
+
+.project-dark-dialog .el-form-item.is-error .el-form-item__error {
+  color: #fca5a5;
+  padding-top: 4px;
+}
+
+.project-dark-dialog .el-input__wrapper,
+.project-dark-dialog .el-select__wrapper {
+  min-height: 46px;
+  padding: 0 14px;
+  background-color: #0c1015;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+  border-radius: 12px;
+  color: #e6edf3;
+  font-size: 14px;
+  transition: box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.project-dark-dialog .el-textarea__inner {
+  min-height: 112px;
+  padding: 12px 14px;
+  background-color: #0c1015;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
+  border: none;
+  border-radius: 12px;
+  color: #e6edf3;
+  font-size: 14px;
+  font-family: inherit;
+  transition: box-shadow 0.18s ease, background-color 0.18s ease;
+  resize: vertical;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+.project-dark-dialog .el-textarea__inner::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.project-dark-dialog .el-textarea__inner::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.project-dark-dialog .el-textarea__inner::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.project-dark-dialog .el-textarea__inner::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.24);
+}
+
+.project-dark-dialog .el-input__inner,
+.project-dark-dialog .el-textarea__inner {
+  color: #e6edf3;
+}
+
+.project-dark-dialog .el-input__inner::placeholder,
+.project-dark-dialog .el-textarea__inner::placeholder,
+.project-dark-dialog .el-select__placeholder {
+  color: #7e8893;
+}
+
+.project-dark-dialog .el-input__wrapper:hover,
+.project-dark-dialog .el-textarea__inner:hover,
+.project-dark-dialog .el-select__wrapper:hover {
+  background-color: #0e131a;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22) inset;
+}
+
+.project-dark-dialog .el-input__wrapper.is-focus,
+.project-dark-dialog .el-textarea__inner:focus,
+.project-dark-dialog .el-select__wrapper.is-focused {
+  background-color: #0d1219;
+  box-shadow:
+    0 0 0 1px rgba(37, 99, 235, 0.55) inset,
+    0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.project-dark-dialog .el-input.is-disabled .el-input__wrapper,
+.project-dark-dialog .el-select.is-disabled .el-select__wrapper {
+  background-color: rgba(255, 255, 255, 0.02);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  color: #6e7681;
+}
+
+.project-dark-dialog .el-input.is-disabled .el-input__inner,
+.project-dark-dialog .el-select.is-disabled .el-select__placeholder {
+  color: #6e7681;
+  -webkit-text-fill-color: #6e7681;
+}
+
+.project-dark-dialog .el-input__count,
+.project-dark-dialog .el-input__count-inner,
+.project-dark-dialog .el-textarea .el-input__count,
+.project-dark-dialog .el-input .el-input__count {
+  color: #6e7681 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  font-size: 12px;
+}
+
+.project-dark-dialog .el-textarea .el-input__count {
+  bottom: 8px;
+  right: 12px;
+}
+
+.project-dark-dialog .el-select__caret {
+  color: #8b949e;
+}
+
+.project-dark-dialog .el-divider {
+  background-color: rgba(255, 255, 255, 0.08);
+  margin: 18px 0;
+}
+
+.project-dark-dialog .el-divider--horizontal {
+  border-top: none;
+  height: 1px;
+}
+
+/* 表格 */
+.project-dark-dialog .el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(255, 255, 255, 0.04);
+  --el-table-border-color: rgba(255, 255, 255, 0.08);
+  --el-table-header-text-color: #c5cdd6;
+  --el-table-text-color: #c5cdd6;
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.04);
+  --el-table-border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: #e6edf3;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.project-dark-dialog .el-table::before,
+.project-dark-dialog .el-table::after {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.project-dark-dialog .el-table th.el-table__cell,
+.project-dark-dialog .el-table td.el-table__cell {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+}
+
+.project-dark-dialog .el-table thead th.el-table__cell {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: #c5cdd6;
+  font-weight: 600;
+}
+
+.project-dark-dialog .el-table tr {
+  background: transparent;
+}
+
+.project-dark-dialog .el-table tbody tr:hover > td.el-table__cell {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.project-dark-dialog .el-table .cell {
+  color: inherit;
+}
+
+.project-dark-dialog .el-table .el-table__empty-block {
+  background: transparent;
+}
+
+.project-dark-dialog .el-table .el-table__empty-text {
+  color: #6e7681;
+}
+
+/* dialog footer 内的按钮 */
+.project-dark-dialog .el-dialog__footer .el-button {
+  height: 42px;
+  min-width: 88px;
+  padding: 0 20px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.project-dark-dialog .el-button.is-text {
+  border-radius: 8px;
+}
+
+.project-dark-dialog .el-dialog__footer .el-button:not(.el-button--primary):not(.el-button--danger) {
+  background-color: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e6edf3;
+}
+
+.project-dark-dialog .el-dialog__footer .el-button:not(.el-button--primary):not(.el-button--danger):hover,
+.project-dark-dialog .el-dialog__footer .el-button:not(.el-button--primary):not(.el-button--danger):focus {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.project-dark-dialog .el-dialog__footer .el-button--primary {
+  background-color: #2563eb;
+  border-color: #2563eb;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
+}
+
+.project-dark-dialog .el-dialog__footer .el-button--primary:hover,
+.project-dark-dialog .el-dialog__footer .el-button--primary:focus {
+  background-color: #1d4ed8;
+  border-color: #1d4ed8;
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.28);
+  transform: translateY(-1px);
+}
+
+.project-dark-dialog .el-dialog__footer .el-button:active {
+  transform: translateY(0);
+}
+
+/* 成员管理弹窗内的搜索/邀请按钮 */
+.project-dark-dialog .member-search .el-button {
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #c5cdd6;
+}
+
+.project-dark-dialog .member-search .el-button:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+/* 表格内 link 按钮 */
+.project-dark-dialog .el-button.is-link.el-button--primary {
+  color: #93c5fd;
+}
+
+.project-dark-dialog .el-button.is-link.el-button--primary:hover {
+  color: #bfdbfe;
+}
+
+.project-dark-dialog .el-button.is-link.el-button--danger {
+  color: #fca5a5;
+}
+
+.project-dark-dialog .el-button.is-link.el-button--danger:hover {
+  color: #fecaca;
+}
+
+.project-dark-dialog .el-button.is-link.is-disabled {
+  color: #4d5560;
+}
+
+/* 对话框双栏布局（参考 toonflow projectDialog） */
+.project-dark-dialog .dialog-grid-2col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 24px;
+}
+
+.project-dark-dialog .form-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.project-dark-dialog .form-col--right {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.project-dark-dialog .panel-card {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0.012));
+  padding: 14px 14px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-dark-dialog .panel-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px;
+}
+
+.project-dark-dialog .panel-card__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #f2f4f8;
+  letter-spacing: -0.2px;
+}
+
+.project-dark-dialog .panel-card__hint {
+  font-size: 12px;
+  color: #93c5fd;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.12);
+  border: 1px solid rgba(37, 99, 235, 0.32);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-dark-dialog .panel-card__field {
+  margin-bottom: 0;
+}
+
+.project-dark-dialog .panel-card__field .el-form-item__content {
+  display: block;
+  line-height: normal;
+}
+
+/* 视觉风格卡片网格（紧凑化以适应右栏） */
+
+.project-dark-dialog .style-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+.project-dark-dialog .style-empty {
+  grid-column: 1 / -1;
+  padding: 16px 0;
+}
+
+.project-dark-dialog .style-grid::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.project-dark-dialog .style-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.project-dark-dialog .style-grid::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+.project-dark-dialog .style-grid::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.28);
+}
+
+.project-dark-dialog .style-card {
+  position: relative;
+  height: 118px;
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: #1a1f29;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  isolation: isolate;
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.project-dark-dialog .style-card__image {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transform: scale(1.02);
+  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1), filter 0.3s ease;
+}
+
+.project-dark-dialog .style-card__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgba(7, 10, 16, 0) 36%, rgba(7, 10, 16, 0.55) 72%, rgba(7, 10, 16, 0.94) 100%),
+    radial-gradient(120% 80% at 50% 0%, rgba(255, 255, 255, 0.08) 0%, transparent 60%);
+  transition: background 0.25s ease, opacity 0.25s ease;
+}
+
+.project-dark-dialog .style-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 22px 44px rgba(0, 0, 0, 0.36);
+}
+
+.project-dark-dialog .style-card:hover .style-card__image {
+  transform: scale(1.08);
+  filter: saturate(1.08) brightness(1.04);
+}
+
+.project-dark-dialog .style-card:focus-visible {
+  outline: none;
+  border-color: rgba(147, 197, 253, 0.7);
+  box-shadow:
+    0 0 0 1px rgba(37, 99, 235, 0.55),
+    0 0 0 4px rgba(37, 99, 235, 0.18);
+}
+
+.project-dark-dialog .style-card.is-active {
+  border-color: rgba(96, 165, 250, 0.85);
+  box-shadow:
+    0 0 0 1px rgba(96, 165, 250, 0.5),
+    0 0 0 4px rgba(37, 99, 235, 0.18),
+    0 22px 44px rgba(37, 99, 235, 0.32);
+}
+
+.project-dark-dialog .style-card.is-active .style-card__overlay {
+  background:
+    linear-gradient(180deg, rgba(7, 10, 16, 0) 28%, rgba(7, 10, 16, 0.6) 72%, rgba(7, 10, 16, 0.94) 100%),
+    linear-gradient(180deg, rgba(37, 99, 235, 0.22) 0%, rgba(37, 99, 235, 0) 60%);
+}
+
+.project-dark-dialog .style-card__zoom,
+.project-dark-dialog .style-card__edit {
+  position: absolute;
+  top: 10px;
+  z-index: 3;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: rgba(15, 20, 28, 0.55);
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  opacity: 0.85;
+  transform: translateY(-2px);
+  transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.project-dark-dialog .style-card__zoom { left: 10px; }
+.project-dark-dialog .style-card__edit { right: 10px; }
+
+.project-dark-dialog .style-card__zoom .el-icon,
+.project-dark-dialog .style-card__edit .el-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.project-dark-dialog .style-card:hover .style-card__zoom,
+.project-dark-dialog .style-card:hover .style-card__edit,
+.project-dark-dialog .style-card:focus-within .style-card__zoom,
+.project-dark-dialog .style-card:focus-within .style-card__edit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.project-dark-dialog .style-card__zoom:hover,
+.project-dark-dialog .style-card__zoom:focus-visible {
+  outline: none;
+  background: rgba(15, 20, 28, 0.78);
+  border-color: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.18),
+    0 6px 14px rgba(0, 0, 0, 0.4);
+}
+
+.project-dark-dialog .style-card__edit:hover,
+.project-dark-dialog .style-card__edit:focus-visible {
+  outline: none;
+  color: #ffffff;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border-color: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 0 0 3px rgba(37, 99, 235, 0.28),
+    0 6px 14px rgba(37, 99, 235, 0.45);
+}
+
+.project-dark-dialog .style-card__text {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 11px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+}
+
+.project-dark-dialog .style-card__title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.25;
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-dark-dialog .style-card__subtitle {
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: rgba(229, 235, 244, 0.78);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.project-dark-dialog .style-card.is-active .style-card__subtitle {
+  color: rgba(219, 234, 254, 0.9);
+}
+
+/* 导演风格 chip 网格（参考 chip-grid） */
+.project-dark-dialog .director-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 10px;
+  width: 100%;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+.project-dark-dialog .director-grid::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.project-dark-dialog .director-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.project-dark-dialog .director-grid::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+.project-dark-dialog .director-grid::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.28);
+}
+
+.project-dark-dialog .director-card {
+  position: relative;
+  height: 118px;
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: #1a1f29;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  isolation: isolate;
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.project-dark-dialog .director-card__image {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transform: scale(1.02);
+  transition: transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1), filter 0.3s ease;
+}
+
+.project-dark-dialog .director-card__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgba(7, 10, 16, 0) 36%, rgba(7, 10, 16, 0.55) 72%, rgba(7, 10, 16, 0.94) 100%),
+    radial-gradient(120% 80% at 50% 0%, rgba(255, 255, 255, 0.08) 0%, transparent 60%);
+  transition: background 0.25s ease, opacity 0.25s ease;
+}
+
+.project-dark-dialog .director-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 22px 44px rgba(0, 0, 0, 0.36);
+}
+
+.project-dark-dialog .director-card:hover .director-card__image {
+  transform: scale(1.06);
+  filter: saturate(1.08) brightness(1.04);
+}
+
+.project-dark-dialog .director-card:focus-visible {
+  outline: none;
+  border-color: rgba(147, 197, 253, 0.7);
+  box-shadow:
+    0 0 0 1px rgba(37, 99, 235, 0.55),
+    0 0 0 4px rgba(37, 99, 235, 0.18);
+}
+
+.project-dark-dialog .director-card.is-active {
+  border-color: rgba(96, 165, 250, 0.85);
+  box-shadow:
+    0 0 0 1px rgba(96, 165, 250, 0.5),
+    0 0 0 4px rgba(37, 99, 235, 0.18),
+    0 22px 44px rgba(37, 99, 235, 0.32);
+}
+
+.project-dark-dialog .director-card.is-active .director-card__overlay {
+  background:
+    linear-gradient(180deg, rgba(7, 10, 16, 0) 28%, rgba(7, 10, 16, 0.6) 72%, rgba(7, 10, 16, 0.94) 100%),
+    linear-gradient(180deg, rgba(37, 99, 235, 0.22) 0%, rgba(37, 99, 235, 0) 60%);
+}
+
+.project-dark-dialog .director-card__zoom,
+.project-dark-dialog .director-card__edit {
+  position: absolute;
+  top: 10px;
+  z-index: 3;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: rgba(15, 20, 28, 0.55);
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  opacity: 0.85;
+  transform: translateY(-2px);
+  transition: opacity 0.2s ease, transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.project-dark-dialog .director-card__zoom { left: 10px; }
+.project-dark-dialog .director-card__edit { right: 10px; }
+
+.project-dark-dialog .director-card__zoom .el-icon,
+.project-dark-dialog .director-card__edit .el-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.project-dark-dialog .director-card:hover .director-card__zoom,
+.project-dark-dialog .director-card:hover .director-card__edit,
+.project-dark-dialog .director-card:focus-within .director-card__zoom,
+.project-dark-dialog .director-card:focus-within .director-card__edit {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.project-dark-dialog .director-card__zoom:hover,
+.project-dark-dialog .director-card__zoom:focus-visible {
+  outline: none;
+  background: rgba(15, 20, 28, 0.78);
+  border-color: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.18),
+    0 6px 14px rgba(0, 0, 0, 0.4);
+}
+
+.project-dark-dialog .director-card__edit:hover,
+.project-dark-dialog .director-card__edit:focus-visible {
+  outline: none;
+  color: #ffffff;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border-color: rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 0 0 3px rgba(37, 99, 235, 0.28),
+    0 6px 14px rgba(37, 99, 235, 0.45);
+}
+
+.project-dark-dialog .director-card__text {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 11px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #ffffff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+}
+
+.project-dark-dialog .director-card__title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.25;
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-dark-dialog .director-card__subtitle {
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: rgba(229, 235, 244, 0.78);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.project-dark-dialog .director-card.is-active .director-card__subtitle {
+  color: rgba(219, 234, 254, 0.9);
+}
+
+@media (max-width: 1080px) {
+  .project-dark-dialog .dialog-grid-2col {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-dark-dialog .style-grid,
+  .project-dark-dialog .director-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-height: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .project-dark-dialog .style-grid,
+  .project-dark-dialog .director-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* select 下拉浮层 */
+.project-dark-select.el-popper {
+  background-color: #14181f;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  color: #e6edf3;
+}
+
+.project-dark-select.el-popper .el-select-dropdown__list {
+  padding: 6px 4px;
+}
+
+.project-dark-select.el-popper .el-select-dropdown__item {
+  color: #c5cdd6;
+  border-radius: 8px;
+  margin: 2px 4px;
+  padding: 0 12px;
+  height: 32px;
+  line-height: 32px;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.project-dark-select.el-popper .el-select-dropdown__item:hover,
+.project-dark-select.el-popper .el-select-dropdown__item.is-hovering {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.project-dark-select.el-popper .el-select-dropdown__item.is-selected {
+  color: #93c5fd;
+  background-color: rgba(37, 99, 235, 0.16);
+  font-weight: 600;
+}
+
+.project-dark-select.el-popper .el-select-dropdown__item.is-disabled {
+  color: #4d5560;
+  background: transparent;
+}
+
+.project-dark-select.el-popper .el-popper__arrow::before {
+  background-color: #14181f;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* 模型选择下拉浮层（按平台分组） */
+.project-model-select.el-popper {
+  min-width: 360px !important;
+}
+
+.project-model-select.el-popper .el-select-group__title {
+  padding: 8px 14px 4px;
+  color: #6e7681;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.project-model-select.el-popper .el-select-group__wrap:not(:last-of-type) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+}
+
+.project-model-select.el-popper .el-select-group__wrap:not(:last-of-type)::after {
+  display: none;
+}
+
+.project-model-select.el-popper .el-select-dropdown__item {
+  height: 38px;
+  line-height: 38px;
+  padding: 0 12px;
+}
+
+.project-model-select .model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.project-model-select .model-option__main {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.project-model-select .model-option__icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.project-model-select .model-option__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: inherit;
+}
+
+.project-model-select .model-option__category {
+  margin-left: auto;
+  text-align: right;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  color: #93c5fd;
+  background: rgba(37, 99, 235, 0.14);
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  line-height: 1.6;
+}
+
+/* messagebox 暗色风格 */
+.project-dark-messagebox {
+  background: linear-gradient(180deg, #14181f 0%, #0d1117 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  color: #e6edf3;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.project-dark-messagebox .el-message-box__header {
+  padding: 18px 24px 8px;
+}
+
+.project-dark-messagebox .el-message-box__title {
+  color: #e6edf3;
+  font-weight: 700;
+}
+
+.project-dark-messagebox .el-message-box__headerbtn .el-message-box__close {
+  color: #8b949e;
+}
+
+.project-dark-messagebox .el-message-box__headerbtn:hover .el-message-box__close,
+.project-dark-messagebox .el-message-box__headerbtn:focus .el-message-box__close {
+  color: #ffffff;
+}
+
+.project-dark-messagebox .el-message-box__content {
+  padding: 8px 24px 18px;
+  color: #b8c2cc;
+}
+
+.project-dark-messagebox .el-message-box__container {
+  align-items: flex-start;
+}
+
+.project-dark-messagebox .el-message-box__message p {
+  color: #b8c2cc;
+}
+
+.project-dark-messagebox .el-message-box__btns {
+  padding: 12px 24px 18px;
+  background: rgba(255, 255, 255, 0.015);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.project-dark-messagebox .el-message-box__btns .el-button {
+  border-radius: 8px;
+}
+
+.project-dark-messagebox .el-message-box__btns .el-button:not(.el-button--primary):not(.el-button--danger) {
+  background-color: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #c5cdd6;
+}
+
+.project-dark-messagebox .el-message-box__btns .el-button:not(.el-button--primary):not(.el-button--danger):hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
 }
 </style>

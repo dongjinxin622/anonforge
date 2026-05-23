@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import io
+
+from fastapi import UploadFile
+from PIL import Image
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.config import settings
+from app.core.config import oss_root_path, settings
 from app.core.database import async_session_maker
 from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate
-from app.utils.string_tools import hash_password
+from app.schemas.user import (
+    UserAvatarUpdate,
+    UserCreate,
+    UserPasswordUpdate,
+    UserProfileUpdate,
+    UserUpdate,
+)
+from app.utils.string_tools import hash_password, verify_password
 from app.utils.time_tools import utc_now
 
 
@@ -25,6 +35,14 @@ class UserNameConflictError(UserServiceError):
 
 class UserEmailConflictError(UserServiceError):
     """用户邮箱冲突异常。"""
+
+
+class UserPasswordMismatchError(UserServiceError):
+    """当前密码校验失败异常。"""
+
+
+class UserAvatarInvalidError(UserServiceError):
+    """头像文件格式或内容不合法异常。"""
 
 
 async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
@@ -165,6 +183,128 @@ async def delete_user(session: AsyncSession, public_id: str) -> None:
     user = await get_user_or_raise(session, public_id)
     await session.delete(user)
     await session.commit()
+
+
+async def get_current_user(session: AsyncSession, current_user_public_id: str) -> User:
+    """获取当前登录用户。"""
+    return await get_user_or_raise(session, current_user_public_id)
+
+
+async def update_current_user_profile(
+    session: AsyncSession,
+    current_user_public_id: str,
+    payload: UserProfileUpdate,
+) -> User:
+    """更新当前登录用户个人资料。"""
+    user = await get_user_or_raise(session, current_user_public_id)
+    fields_set = payload.model_fields_set
+
+    if "username" in fields_set and payload.username is not None:
+        await ensure_unique_username(session, payload.username, current_user_id=user.id)
+        user.username = payload.username
+    if "email" in fields_set:
+        await ensure_unique_email(session, payload.email, current_user_id=user.id)
+        user.email = payload.email
+    if "nickname" in fields_set:
+        user.nickname = payload.nickname
+
+    user.updated_at = utc_now()
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def update_current_user_password(
+    session: AsyncSession,
+    current_user_public_id: str,
+    payload: UserPasswordUpdate,
+) -> User:
+    """校验当前密码并更新当前登录用户密码。"""
+    user = await get_user_or_raise(session, current_user_public_id)
+    if not verify_password(payload.old_password, user.password_hash):
+        raise UserPasswordMismatchError("Current password is incorrect")
+
+    user.password_hash = hash_password(payload.new_password)
+    user.updated_at = utc_now()
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+async def update_current_user_avatar(
+    session: AsyncSession,
+    current_user_public_id: str,
+    payload: UserAvatarUpdate,
+) -> User:
+    """更新当前登录用户头像地址。"""
+    user = await get_user_or_raise(session, current_user_public_id)
+    user.avatar_url = payload.avatar_url
+    user.updated_at = utc_now()
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
+
+
+_ALLOWED_AVATAR_CONTENT_TYPES = {"image/png", "image/jpeg", "image/jpg"}
+_AVATAR_OUTPUT_SIZE = 256
+_AVATAR_MAX_BYTES = 5 * 1024 * 1024
+
+
+async def upload_current_user_avatar(
+    session: AsyncSession,
+    current_user_public_id: str,
+    upload: UploadFile,
+) -> User:
+    """接收用户上传的图片，居中裁剪为 1:1 正方形并写入 avatar_url。"""
+    if upload.content_type not in _ALLOWED_AVATAR_CONTENT_TYPES:
+        raise UserAvatarInvalidError("仅支持 PNG/JPEG/JPG 格式的图片")
+
+    data = await upload.read()
+    if not data:
+        raise UserAvatarInvalidError("图片内容为空")
+    if len(data) > _AVATAR_MAX_BYTES:
+        raise UserAvatarInvalidError("图片大小不能超过 5MB")
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            width, height = image.size
+            side = min(width, height)
+            left = (width - side) // 2
+            top = (height - side) // 2
+            cropped = image.crop((left, top, left + side, top + side))
+            cropped = cropped.resize(
+                (_AVATAR_OUTPUT_SIZE, _AVATAR_OUTPUT_SIZE),
+                Image.Resampling.LANCZOS,
+            )
+            if cropped.mode in ("RGBA", "LA"):
+                background = Image.new("RGB", cropped.size, (255, 255, 255))
+                background.paste(cropped, mask=cropped.split()[-1])
+                cropped = background
+            elif cropped.mode != "RGB":
+                cropped = cropped.convert("RGB")
+
+            user = await get_user_or_raise(session, current_user_public_id)
+            avatar_dir = oss_root_path() / "avatars"
+            avatar_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = int(utc_now().timestamp())
+            filename = f"{user.public_id}_{timestamp}.jpg"
+            target_path = avatar_dir / filename
+            cropped.save(target_path, format="JPEG", quality=88, optimize=True)
+    except UserServiceError:
+        raise
+    except Exception as exc:
+        raise UserAvatarInvalidError(f"图片处理失败：{exc}") from exc
+
+    user.avatar_url = f"/oss/avatars/{filename}"
+    user.updated_at = utc_now()
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
 
 
 async def ensure_default_admin() -> None:

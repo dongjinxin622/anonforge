@@ -4,7 +4,6 @@ import pytest
 
 from app.models.user import User
 
-
 @pytest.mark.anyio
 async def test_user_status_methods_update_state() -> None:
     user = User(username="moluo", password_hash="hashed-password")

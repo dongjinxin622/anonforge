@@ -11,8 +11,6 @@ def test_settings_reads_environment_and_casts_numbers(monkeypatch: pytest.Monkey
         "PORT": "9000",
         "DB_PORT": "15432",
         "DB_HEALTHCHECK_RETRIES": "9",
-        "REDIS_PORT": "16379",
-        "REDIS_DB": "2",
     }.items():
         monkeypatch.setenv(key, value)
 

@@ -20,7 +20,12 @@
       "Bash(cp -r /e/projects/case_1.1/code/backend/alembic /e/projects/case_one/backend/alembic)",
       "Bash(cp /e/projects/case_1.1/code/backend/pytest.ini /e/projects/case_one/backend/pytest.ini)",
       "Bash(cp /e/projects/case_1.1/code/backend/requirements.txt /e/projects/case_one/backend/requirements.txt)",
-      "Bash(cp /e/projects/case_1.1/code/backend/run.py /e/projects/case_one/backend/run.py)"
+      "Bash(cp /e/projects/case_1.1/code/backend/run.py /e/projects/case_one/backend/run.py)",
+      "Bash(ls \"E:/AI智能体课程/AI agent/day31/code/backend/app/schemas/\")",
+      "Read(//e/AI智能体课程/AI agent/day31/code/backend/app/**)",
+      "Bash(ls \"E:/AI智能体课程/AI agent/day31/code/backend/app/routers/\")",
+      "Bash(python -c \"import os; print\\('\\\\n'.join\\(os.listdir\\(r'E:\\\\AI智能体课程\\\\AI agent\\\\day31\\\\code\\\\backend\\\\app\\\\routers'\\)\\)\\)\")",
+      "Bash(python -c \"import os; print\\('\\\\n'.join\\(os.listdir\\(r'E:\\\\AI智能体课程\\\\AI agent\\\\day31\\\\code\\\\backend\\\\app'\\)\\)\\)\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\djx\\.claude",
