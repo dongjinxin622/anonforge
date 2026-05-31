@@ -14,8 +14,18 @@ const routes = [
     path: '/project',
     component: () => import('@/pages/Project.vue')
   },
-
-
+  {
+    path: '/novel',
+    component: () => import('@/pages/Novel.vue')
+  },
+  {
+    path: '/script',
+    component: () => import('@/pages/Script.vue')
+  },
+  {
+    path: '/original',
+    component: () => import('@/pages/Original.vue')
+  },
 ]
 
 

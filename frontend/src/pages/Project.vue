@@ -48,7 +48,7 @@
 
           <el-button class="create-button" type="primary" size="large" @click="openCreateDialog">
             <el-icon><Plus /></el-icon>
-            新建项目
+            &nbsp;新建项目
           </el-button>
         </header>
 
@@ -87,6 +87,7 @@
             :key="project.public_id"
             class="project-card"
             shadow="never"
+            @click="openProject(project)"
           >
             <template #header>
               <div class="card-head">
@@ -114,25 +115,25 @@
 
               <div class="actions">
                 <el-tooltip content="成员" placement="top">
-                  <el-button text circle class="icon-action" @click="openMemberDialog(project)">
+                  <el-button text circle class="icon-action" @click.stop="openMemberDialog(project)">
                     <el-icon><UserFilled /></el-icon>
                   </el-button>
                 </el-tooltip>
 
                 <el-tooltip :content="project.disabled_at ? '启用' : '禁用'" placement="top">
-                  <el-button text circle class="icon-action" @click="toggleProjectStatus(project)">
+                  <el-button text circle class="icon-action" @click.stop="toggleProjectStatus(project)">
                     <el-icon><SwitchButton /></el-icon>
                   </el-button>
                 </el-tooltip>
 
                 <el-tooltip content="编辑" placement="top">
-                  <el-button text circle class="icon-action" @click="openEditDialog(project)">
+                  <el-button text circle class="icon-action" @click.stop="openEditDialog(project)">
                     <el-icon><EditPen /></el-icon>
                   </el-button>
                 </el-tooltip>
 
                 <el-tooltip content="删除" placement="top">
-                  <el-button text circle class="icon-action delete" @click="handleDeleteProject(project)">
+                  <el-button text circle class="icon-action delete" @click.stop="handleDeleteProject(project)">
                     <el-icon><Delete /></el-icon>
                   </el-button>
                 </el-tooltip>
@@ -187,26 +188,65 @@
                 <el-input v-model="projectForm.content_type" placeholder="如:玄幻、科幻、言情" />
               </el-form-item>
 
-              <el-form-item label="选择图像模型" prop="image_model">
+              <el-form-item label="选择文本模型" prop="text_model">
                 <el-select
-                  v-model="projectForm.image_model"
+                  v-model="projectForm.text_model"
+                  clearable
+                  filterable
+                  :loading="modelProvidersLoading"
                   popper-class="project-dark-select project-model-select"
-                  placeholder="请选择图像模型"
+                  placeholder="请选择文本模型"
                 >
+                  <el-option v-if="textModelGroups.length === 0" disabled label="暂无可用文本模型" value="" />
                   <el-option-group
-                    v-for="group in imageModelPresets"
-                    :key="group.platform"
+                    v-for="group in textModelGroups"
+                    :key="group.key"
                     :label="group.platform"
                   >
                     <el-option
                       v-for="item in group.models"
-                      :key="item.value"
+                      :key="`${group.key}:${item.value}`"
                       :label="item.label"
                       :value="item.value"
                     >
                       <span class="model-option">
                         <span class="model-option__main">
-                          <img class="model-option__icon" :src="group.icon" :alt="group.platform" />
+                          <img v-if="group.icon" class="model-option__icon" :src="group.icon" :alt="group.platform" />
+                          <span v-else class="model-option__fallback">{{ group.platform.slice(0, 1).toUpperCase() }}</span>
+                          <span class="model-option__name">{{ item.label }}</span>
+                        </span>
+                        <span class="model-option__category">{{ item.category }}</span>
+                      </span>
+                    </el-option>
+                  </el-option-group>
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="选择图像模型" prop="image_model">
+                <el-select
+                  v-model="projectForm.image_model"
+                  clearable
+                  filterable
+                  :loading="modelProvidersLoading"
+                  popper-class="project-dark-select project-model-select"
+                  placeholder="请选择图像模型"
+                >
+                  <el-option v-if="imageModelGroups.length === 0" disabled label="暂无可用图像模型" value="" />
+                  <el-option-group
+                    v-for="group in imageModelGroups"
+                    :key="group.key"
+                    :label="group.platform"
+                  >
+                    <el-option
+                      v-for="item in group.models"
+                      :key="`${group.key}:${item.value}`"
+                      :label="item.label"
+                      :value="item.value"
+                    >
+                      <span class="model-option">
+                        <span class="model-option__main">
+                          <img v-if="group.icon" class="model-option__icon" :src="group.icon" :alt="group.platform" />
+                          <span v-else class="model-option__fallback">{{ group.platform.slice(0, 1).toUpperCase() }}</span>
                           <span class="model-option__name">{{ item.label }}</span>
                         </span>
                         <span class="model-option__category">{{ item.category }}</span>
@@ -227,23 +267,62 @@
               <el-form-item label="选择视频模型" prop="video_model">
                 <el-select
                   v-model="projectForm.video_model"
+                  clearable
+                  filterable
+                  :loading="modelProvidersLoading"
                   popper-class="project-dark-select project-model-select"
                   placeholder="请选择视频模型"
                 >
+                  <el-option v-if="videoModelGroups.length === 0" disabled label="暂无可用视频模型" value="" />
                   <el-option-group
-                    v-for="group in videoModelPresets"
-                    :key="group.platform"
+                    v-for="group in videoModelGroups"
+                    :key="group.key"
                     :label="group.platform"
                   >
                     <el-option
                       v-for="item in group.models"
-                      :key="item.value"
+                      :key="`${group.key}:${item.value}`"
                       :label="item.label"
                       :value="item.value"
                     >
                       <span class="model-option">
                         <span class="model-option__main">
-                          <img class="model-option__icon" :src="group.icon" :alt="group.platform" />
+                          <img v-if="group.icon" class="model-option__icon" :src="group.icon" :alt="group.platform" />
+                          <span v-else class="model-option__fallback">{{ group.platform.slice(0, 1).toUpperCase() }}</span>
+                          <span class="model-option__name">{{ item.label }}</span>
+                        </span>
+                        <span class="model-option__category">{{ item.category }}</span>
+                      </span>
+                    </el-option>
+                  </el-option-group>
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="选择语音模型" prop="tts_model">
+                <el-select
+                  v-model="projectForm.tts_model"
+                  clearable
+                  filterable
+                  :loading="modelProvidersLoading"
+                  popper-class="project-dark-select project-model-select"
+                  placeholder="请选择语音模型"
+                >
+                  <el-option v-if="ttsModelGroups.length === 0" disabled label="暂无可用语音模型" value="" />
+                  <el-option-group
+                    v-for="group in ttsModelGroups"
+                    :key="group.key"
+                    :label="group.platform"
+                  >
+                    <el-option
+                      v-for="item in group.models"
+                      :key="`${group.key}:${item.value}`"
+                      :label="item.label"
+                      :value="item.value"
+                    >
+                      <span class="model-option">
+                        <span class="model-option__main">
+                          <img v-if="group.icon" class="model-option__icon" :src="group.icon" :alt="group.platform" />
+                          <span v-else class="model-option__fallback">{{ group.platform.slice(0, 1).toUpperCase() }}</span>
                           <span class="model-option__name">{{ item.label }}</span>
                         </span>
                         <span class="model-option__category">{{ item.category }}</span>
@@ -257,6 +336,7 @@
                 <el-select v-model="projectForm.mode" popper-class="project-dark-select" placeholder="模式">
                   <el-option label="文生视频" value="text" />
                   <el-option label="单图参考" value="singleImage" />
+                  <el-option label="多图参考" value="multiReference" />
                   <el-option label="必须首尾帧" value="startEndRequired" />
                   <el-option label="尾帧可选" value="endFrameOptional" />
                   <el-option label="首帧可选" value="startFrameOptional" />
@@ -280,7 +360,18 @@
           <div class="form-col form-col--right">
             <section class="panel-card">
               <header class="panel-card__head">
-                <h3 class="panel-card__title">视觉风格</h3>
+                <div class="panel-card__title-actions">
+                  <h3 class="panel-card__title">视觉风格</h3>
+                  <el-button
+                    class="panel-card__add"
+                    type="primary"
+                    size="small"
+                    @click="openCreateStyleDialog"
+                  >
+                    <el-icon><Plus /></el-icon>
+                    添加视觉风格
+                  </el-button>
+                </div>
                 <span class="panel-card__hint">{{ activeArtStyleLabel || '未选择' }}</span>
               </header>
               <el-form-item prop="art_style" class="panel-card__field">
@@ -325,9 +416,9 @@
                       tabindex="0"
                       aria-label="编辑视觉风格"
                       title="编辑视觉风格"
-                      @click.stop="showComingSoon"
-                      @keydown.enter.stop.prevent="showComingSoon"
-                      @keydown.space.stop.prevent="showComingSoon"
+                      @click.stop="openEditStyleDialog(preset)"
+                      @keydown.enter.stop.prevent="openEditStyleDialog(preset)"
+                      @keydown.space.stop.prevent="openEditStyleDialog(preset)"
                     >
                       <el-icon><EditPen /></el-icon>
                     </span>
@@ -342,7 +433,18 @@
 
             <section class="panel-card">
               <header class="panel-card__head">
-                <h3 class="panel-card__title">导演风格</h3>
+                <div class="panel-card__title-actions">
+                  <h3 class="panel-card__title">导演风格</h3>
+                  <el-button
+                    class="panel-card__add"
+                    type="primary"
+                    size="small"
+                    @click="openCreateDirectorStyleDialog"
+                  >
+                    <el-icon><Plus /></el-icon>
+                    添加导演风格
+                  </el-button>
+                </div>
                 <span class="panel-card__hint">{{ activeDirectorStyleLabel || '未选择' }}</span>
               </header>
               <el-form-item prop="director_manual" class="panel-card__field">
@@ -388,9 +490,9 @@
                       tabindex="0"
                       aria-label="编辑导演风格"
                       title="编辑导演风格"
-                      @click.stop="showComingSoon"
-                      @keydown.enter.stop.prevent="showComingSoon"
-                      @keydown.space.stop.prevent="showComingSoon"
+                      @click.stop="openEditDirectorStyleDialog(preset)"
+                      @keydown.enter.stop.prevent="openEditDirectorStyleDialog(preset)"
+                      @keydown.space.stop.prevent="openEditDirectorStyleDialog(preset)"
                     >
                       <el-icon><EditPen /></el-icon>
                     </span>
@@ -501,6 +603,20 @@
       </el-table>
     </el-dialog>
 
+    <VisualStyleDialog
+      v-model="visualStyleDialogVisible"
+      :mode="visualStyleDialogMode"
+      :style="editingVisualStyle"
+      @saved="handleVisualStyleSaved"
+    />
+
+    <DirectorStyleDialog
+      v-model="directorStyleDialogVisible"
+      :mode="directorStyleDialogMode"
+      :manual="editingDirectorStyle"
+      @saved="handleDirectorStyleSaved"
+    />
+
     <el-image-viewer
       v-if="previewVisible"
       :url-list="previewUrls"
@@ -559,20 +675,34 @@ import {
   type VisualStyleImageRecord,
   type VisualStyleRecord,
 } from '@/api/project'
+import {
+  listProvidersApi,
+  type ProviderConfig,
+  type ProviderModelType,
+} from '@/api/modelProvider'
 import Settings from '../components/Settings.vue'
+import DirectorStyleDialog from '../components/DirectorStyleDialog.vue'
+import VisualStyleDialog from '../components/VisualStyleDialog.vue'
 
 type ProjectDialogMode = 'create' | 'edit'
+type VisualStyleDialogMode = 'create' | 'edit'
+type DirectorStyleDialogMode = 'create' | 'edit'
 
-interface ArtStylePreset {
-  style_path: string
-  name: string
-  images: VisualStyleRecord['images']
+type ArtStylePreset = VisualStyleRecord
+type DirectorStylePreset = DirectorManualRecord
+
+interface ProviderModelOption {
+  label: string
+  value: string
+  category: string
+  description: string
 }
 
-interface DirectorStylePreset {
-  manual_path: string
-  name: string
-  images: DirectorManualRecord['images']
+interface ProviderModelGroup {
+  key: string
+  platform: string
+  icon: string
+  models: ProviderModelOption[]
 }
 
 const router = useRouter()
@@ -599,6 +729,14 @@ const candidatesLoading = ref(false)
 const inviteRole = ref<ProjectMemberRole>('editor')
 const artStylesLoading = ref(false)
 const directorStylesLoading = ref(false)
+const modelProvidersLoading = ref(false)
+const modelProviders = ref<ProviderConfig[]>([])
+const visualStyleDialogVisible = ref(false)
+const visualStyleDialogMode = ref<VisualStyleDialogMode>('create')
+const editingVisualStyle = ref<VisualStyleRecord | null>(null)
+const directorStyleDialogVisible = ref(false)
+const directorStyleDialogMode = ref<DirectorStyleDialogMode>('create')
+const editingDirectorStyle = ref<DirectorManualRecord | null>(null)
 
 const settingsVisible = ref(false)
 
@@ -614,101 +752,82 @@ const projectForm = reactive<ProjectPayload>({
   art_style: '',
   director_manual: '',
   video_ratio: '9:16',
+  text_model: '',
   image_model: '',
   video_model: '',
+  tts_model: '',
   image_quality: '1K',
   mode: 'text',
 })
 
+const MODEL_TYPE_LABELS: Record<ProviderModelType, string> = {
+  text: '文本',
+  image: '图像',
+  video: '视频',
+  tts: '语音',
+}
+
+const createEmptyProviderGroups = (): Record<ProviderModelType, ProviderModelGroup[]> => ({
+  text: [],
+  image: [],
+  video: [],
+  tts: [],
+})
+
+const createEmptyModelBuckets = (): Record<ProviderModelType, ProviderModelOption[]> => ({
+  text: [],
+  image: [],
+  video: [],
+  tts: [],
+})
+
 const artStylePresets = ref<ArtStylePreset[]>([])
 
-const imageModelPresets = [
-  {
-    platform: '火山引擎',
-    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPjxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjZFMkQiLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNFODM5MkYiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2cpIi8+PHBhdGggZD0iTTEyIDVsNSA5SDd6IiBmaWxsPSIjZmZmIi8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxNyIgcj0iMS40IiBmaWxsPSIjZmZmIi8+PC9zdmc+',
-    models: [
-      { label: 'Seedream-5.0', value: 'doubao-seedream-5-0-260128', category: '图像' },
-      { label: 'Seedream-5.0-Lite', value: 'doubao-seedream-5-0-lite-260128', category: '图像' },
-      { label: 'Seedream-4.5', value: 'doubao-seedream-4-5-251128', category: '图像' },
-    ],
-  },
-  {
-    platform: 'Gemini',
-    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjRkFDQzE1Ii8+PHBhdGggZD0iTTkgNmMtMSA0IDAgOCA0IDEwIDEtMSAxLTMgMC00LTMtMS0zLTQtMS02eiIgZmlsbD0iIzdDMkQxMiIvPjwvc3ZnPg==',
-    models: [
-      { label: 'Nano Banana Pro', value: 'nano-banana-pro', category: '图像' },
-      { label: 'Nano Banana 2', value: 'nano-banana-2', category: '图像' },
-      { label: 'Nano Banana Fast', value: 'nano-banana-fast', category: '图像' },
-    ],
-  },
-  {
-    platform: 'MiniMax',
-    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjMUUzQThBIi8+PHBhdGggZD0iTTUgMTdWOGwzIDQgMy00djlNMTMgMTdWOGwzIDQgMy00djkiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==',
-    models: [
-      { label: '海螺图像V1', value: 'image-01', category: '图像' },
-      { label: '海螺图像V1 Live版', value: 'image-01-live', category: '图像' },
-    ],
-  },
-  {
-    platform: 'Vidu',
-    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjN0MzQUVEIi8+PHBhdGggZD0iTTYgOGw0IDloMmw0LTloLTJsLTMgNy0zLTd6IiBmaWxsPSIjZmZmIi8+PC9zdmc+',
-    models: [
-      { label: 'ViduQ2 for image', value: 'viduq2', category: '图像' },
-      { label: 'ViduQ1 for image', value: 'viduq1', category: '图像' },
-    ],
-  },
-] as const
+const providerModelGroups = computed<Record<ProviderModelType, ProviderModelGroup[]>>(() => {
+  const groups = createEmptyProviderGroups()
+  for (const provider of modelProviders.value) {
+    if (!provider.enabled) continue
 
-const videoModelPresets = [
-  {
-    platform: '火山引擎',
-    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPjxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNGRjZFMkQiLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNFODM5MkYiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSJ1cmwoI2cpIi8+PHBhdGggZD0iTTEyIDVsNSA5SDd6IiBmaWxsPSIjZmZmIi8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxNyIgcj0iMS40IiBmaWxsPSIjZmZmIi8+PC9zdmc+',
-    models: [
-      { label: 'Seedance-2.0（音画同生）', value: 'doubao-seedance-2-0-260128', category: '视频' },
-      { label: 'Seedance-2.0-Fast（音画同生）', value: 'doubao-seedance-2-0-fast-260128', category: '视频' },
-      { label: 'Seedance-1.5-Pro（音画同生）', value: 'doubao-seedance-1-5-pro-251215', category: '视频' },
-    ],
-  },
-  {
-    platform: '可灵 KlingAI',
-    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImsiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMjJEM0VFIi8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMjU2M0VCIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNiIgZmlsbD0idXJsKCNrKSIvPjxwYXRoIGQ9Ik05IDZ2MTJNOSAxMmw1LTZNOSAxMmw1IDYiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjgiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==',
-    models: [
-      { label: 'Kling-v3 标准', value: 'kling-v3:std', category: '视频' },
-      { label: 'Kling-v3 专家', value: 'kling-v3:pro', category: '视频' },
-      { label: 'Kling-v2-1 Master', value: 'kling-v2-1-master:pro', category: '视频' },
-    ],
-  },
-  {
-    platform: 'MiniMax',
-    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI2IiBmaWxsPSIjMUUzQThBIi8+PHBhdGggZD0iTTUgMTdWOGwzIDQgMy00djlNMTMgMTdWOGwzIDQgMy00djkiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==',
-    models: [
-      { label: '海螺2.3', value: 'MiniMax-Hailuo-2.3', category: '视频' },
-      { label: '海螺2.3 极速版', value: 'MiniMax-Hailuo-2.3-Fast', category: '视频' },
-      { label: '海螺02', value: 'MiniMax-Hailuo-02', category: '视频' },
-    ],
-  },
-  {
-    platform: 'Qwen',
-    icon: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9InQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjMzREMzk5Ii8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMEVBNUU5Ii8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNiIgZmlsbD0idXJsKCN0KSIvPjxjaXJjbGUgY3g9IjkiIGN5PSIxMCIgcj0iMyIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjEuNiIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjE1IiBjeT0iMTQiIHI9IjMiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIGZpbGw9Im5vbmUiLz48L3N2Zz4=',
-    models: [
-      { label: 'Wan2.6 I2V 1080P', value: 'Wan2.6-I2V-1080P', category: '视频' },
-      { label: 'Wan2.6 I2V 720P', value: 'Wan2.6-I2V-720P', category: '视频' },
-      { label: 'ViduQ3 Pro', value: 'ViduQ3-pro', category: '视频' },
-    ],
-  },
-] as const
+    const groupedModels = createEmptyModelBuckets()
+    for (const model of provider.models) {
+      groupedModels[model.model_type].push({
+        label: model.name || model.model_id,
+        value: model.model_id,
+        category: MODEL_TYPE_LABELS[model.model_type],
+        description: model.description || model.model_id,
+      })
+    }
 
+    for (const modelType of Object.keys(groupedModels) as ProviderModelType[]) {
+      if (groupedModels[modelType].length === 0) continue
+      groups[modelType].push({
+        key: provider.key,
+        platform: provider.name || provider.key,
+        icon: provider.icon,
+        models: groupedModels[modelType],
+      })
+    }
+  }
+  return groups
+})
+
+const textModelGroups = computed(() => providerModelGroups.value.text)
+const imageModelGroups = computed(() => providerModelGroups.value.image)
+const videoModelGroups = computed(() => providerModelGroups.value.video)
+const ttsModelGroups = computed(() => providerModelGroups.value.tts)
 const directorStylePresets = ref<DirectorStylePreset[]>([])
 
 const toArtStylePreset = (style: VisualStyleRecord): ArtStylePreset => ({
   style_path: style.style_path,
   name: style.name,
+  files: style.files,
   images: style.images,
 })
 
 const toDirectorStylePreset = (manual: DirectorManualRecord): DirectorStylePreset => ({
   manual_path: manual.manual_path,
   name: manual.name,
+  files: manual.files,
   images: manual.images,
 })
 
@@ -743,6 +862,23 @@ const openStylePreview = (preset: ArtStylePreset) => {
   previewVisible.value = true
 }
 
+const openCreateStyleDialog = () => {
+  visualStyleDialogMode.value = 'create'
+  editingVisualStyle.value = null
+  visualStyleDialogVisible.value = true
+}
+
+const openEditStyleDialog = (preset: ArtStylePreset) => {
+  visualStyleDialogMode.value = 'edit'
+  editingVisualStyle.value = preset
+  visualStyleDialogVisible.value = true
+}
+
+const handleVisualStyleSaved = async (style: VisualStyleRecord) => {
+  await loadVisualStyles()
+  projectForm.art_style = style.style_path
+}
+
 const getDirectorStyleLabel = (value: string) => (
   directorStylePresets.value.find((item) => item.manual_path === value)?.manual_path ?? ''
 )
@@ -772,6 +908,23 @@ const openDirectorPreview = (preset: DirectorStylePreset) => {
   previewUrls.value = urls
   previewIndex.value = 0
   previewVisible.value = true
+}
+
+const openCreateDirectorStyleDialog = () => {
+  directorStyleDialogMode.value = 'create'
+  editingDirectorStyle.value = null
+  directorStyleDialogVisible.value = true
+}
+
+const openEditDirectorStyleDialog = (preset: DirectorStylePreset) => {
+  directorStyleDialogMode.value = 'edit'
+  editingDirectorStyle.value = preset
+  directorStyleDialogVisible.value = true
+}
+
+const handleDirectorStyleSaved = async (manualPath: string) => {
+  await loadDirectorManuals()
+  projectForm.director_manual = manualPath
 }
 
 const activeArtStyleLabel = computed(
@@ -853,10 +1006,29 @@ const loadDirectorManuals = async () => {
   }
 }
 
+const loadModelProviders = async () => {
+  modelProvidersLoading.value = true
+  try {
+    const { data } = await listProvidersApi()
+    modelProviders.value = data
+  } catch (error) {
+    modelProviders.value = []
+    ElMessage.error(getErrorMessage(error))
+  } finally {
+    modelProvidersLoading.value = false
+  }
+}
+
+const ensureModelProvidersLoaded = () => {
+  if (modelProvidersLoading.value || modelProviders.value.length > 0) return
+  void loadModelProviders()
+}
+
 const openCreateDialog = () => {
   projectDialogMode.value = 'create'
   editingProjectPublicId.value = ''
   resetProjectForm()
+  ensureModelProvidersLoaded()
   projectDialogVisible.value = true
 }
 
@@ -864,6 +1036,7 @@ const openEditDialog = (project: ProjectRecord) => {
   projectDialogMode.value = 'edit'
   editingProjectPublicId.value = project.public_id
   Object.assign(projectForm, pickProjectPayload(project))
+  ensureModelProvidersLoaded()
   projectDialogVisible.value = true
 }
 
@@ -1028,8 +1201,10 @@ const resetProjectForm = () => {
     art_style: '',
     director_manual: '',
     video_ratio: '9:16',
+    text_model: '',
     image_model: '',
     video_model: '',
+    tts_model: '',
     image_quality: '1K',
     mode: 'text' as ProjectVideoMode,
   })
@@ -1043,8 +1218,10 @@ const pickProjectPayload = (project: ProjectRecord): ProjectPayload => ({
   art_style: project.art_style,
   director_manual: project.director_manual,
   video_ratio: project.video_ratio,
+  text_model: project.text_model,
   image_model: project.image_model,
   video_model: project.video_model,
+  tts_model: project.tts_model,
   image_quality: project.image_quality,
   mode: project.mode,
 })
@@ -1077,6 +1254,24 @@ const goHome = () => {
   router.push('/project')
 }
 
+const openProject = (project: ProjectRecord) => {
+  if (project.disabled_at) {
+    ElMessage.warning('该项目已禁用，无法打开')
+    return
+  }
+  const routeMap: Record<string, string> = {
+    novel: '/novel',
+    script: '/script',
+    original: '/original',
+  }
+  const path = routeMap[project.project_type]
+  if (!path) {
+    ElMessage.info('该项目类型暂未开放')
+    return
+  }
+  router.push({ path, query: { id: project.public_id } })
+}
+
 const showComingSoon = () => {
   ElMessage.info('功能开发中')
 }
@@ -1085,6 +1280,7 @@ onMounted(() => {
   void loadProjects()
   void loadVisualStyles()
   void loadDirectorManuals()
+  void loadModelProviders()
 })
 </script>
 
@@ -2019,7 +2215,6 @@ onMounted(() => {
   color: #4d5560;
 }
 
-/* 对话框双栏布局（参考 toonflow projectDialog） */
 .project-dark-dialog .dialog-grid-2col {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
@@ -2057,12 +2252,35 @@ onMounted(() => {
   padding: 2px 4px;
 }
 
+.project-dark-dialog .panel-card__title-actions {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .project-dark-dialog .panel-card__title {
   margin: 0;
   font-size: 15px;
   font-weight: 700;
   color: #f2f4f8;
   letter-spacing: -0.2px;
+  flex-shrink: 0;
+}
+
+.project-dark-dialog .panel-card__add {
+  min-height: 30px;
+  border-radius: 999px;
+  color: #bfdbfe;
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(96, 165, 250, 0.35);
+}
+
+.project-dark-dialog .panel-card__add:hover,
+.project-dark-dialog .panel-card__add:focus {
+  color: #ffffff;
+  background: rgba(37, 99, 235, 0.26);
+  border-color: rgba(147, 197, 253, 0.68);
 }
 
 .project-dark-dialog .panel-card__hint {
@@ -2617,6 +2835,20 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.project-model-select .model-option__fallback {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: #dbeafe;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(37, 99, 235, 0.18);
+  border: 1px solid rgba(147, 197, 253, 0.28);
 }
 
 .project-model-select .model-option__name {

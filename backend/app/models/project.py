@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Column, DateTime, Enum as SAEnum, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, Enum as SAEnum, ForeignKey, Integer, String, func
 from sqlmodel import Field, SQLModel
 
 from app.models.base import BaseModel
@@ -15,6 +15,7 @@ class ProjectVideoMode(str, Enum):
 
     TEXT = "text"
     SINGLE_IMAGE = "singleImage"
+    MULTI_REFERENCE = "multiReference"
     START_END_REQUIRED = "startEndRequired"
     END_FRAME_OPTIONAL = "endFrameOptional"
     START_FRAME_OPTIONAL = "startFrameOptional"
@@ -74,15 +75,25 @@ class Project(BaseModel, table=True):
         sa_column=Column("video_ratio", String(20), nullable=False, default="9:16"),
         description="默认视频画幅比例。",
     )
+    text_model: str = Field(
+        default="",
+        sa_column=Column("text_model", String(100), nullable=False, default="", server_default=""),
+        description="默认文本生成模型。",
+    )
     image_model: str = Field(
         default="",
-        sa_column=Column("image_model", String(100), nullable=False, default=""),
+        sa_column=Column("image_model", String(100), nullable=False, default="", server_default=""),
         description="默认图像生成模型。",
     )
     video_model: str = Field(
         default="",
-        sa_column=Column("video_model", String(100), nullable=False, default=""),
+        sa_column=Column("video_model", String(100), nullable=False, default="", server_default=""),
         description="默认视频生成模型。",
+    )
+    tts_model: str = Field(
+        default="",
+        sa_column=Column("tts_model", String(100), nullable=False, default="", server_default=""),
+        description="默认语音生成模型。",
     )
     image_quality: str = Field(
         default="standard",

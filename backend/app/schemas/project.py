@@ -15,8 +15,10 @@ class ProjectBase(BaseModel):
     art_style: str = Field(default="3D_chinese_traditional", description="艺术风格")
     director_manual: str = Field(default="", description="导演风格")
     video_ratio: str = Field(default="9:16", description="视频比例")
+    text_model: str = Field(default="", description="文本模型")
     image_model: str = Field(default="", description="生图模型")
     video_model: str = Field(default="", description="视频模型")
+    tts_model: str = Field(default="", description="语音模型")
     image_quality: str = Field(default="standard", description="图片质量")
     mode: ProjectVideoMode = Field(default=ProjectVideoMode.TEXT, description="视频生成模式")
 
@@ -33,8 +35,10 @@ class ProjectUpdate(BaseModel):
     art_style: str | None = None
     director_manual: str | None = None
     video_ratio: str | None = None
+    text_model: str | None = None
     image_model: str | None = None
     video_model: str | None = None
+    tts_model: str | None = None
     image_quality: str | None = None
     mode: ProjectVideoMode | None = None
 
@@ -178,3 +182,12 @@ class DirectorManualRead(BaseModel):
     name: str = Field(default="", description="导演手册展示名称。")
     files: list[DirectorManualFileRead] = Field(default_factory=list, description="Markdown 文件列表。")
     images: list[DirectorManualImageRead] = Field(default_factory=list, description="图片文件列表。")
+
+
+class DirectorManualCreate(BaseModel):
+    """创建导演手册请求。"""
+
+    manual_path: str = Field(min_length=1, max_length=120, description="导演手册目录名。")
+    name: str = Field(default="", max_length=120, description="导演手册展示名称。")
+    files: list[DirectorManualFileWrite] = Field(default_factory=list, description="需要写入的 Markdown 文件。")
+    images: list[DirectorManualImageWrite] = Field(default_factory=list, description="需要写入的图片。")
