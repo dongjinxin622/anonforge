@@ -6,18 +6,19 @@ if sys.platform.startswith("win"):
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from app.core.config import settings
+from app.core.config import oss_root_path, settings
+from sqlalchemy.exc import OperationalError
 from app.routers.api import api_router
 from app.services.user import ensure_default_admin
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """应用生命周期钩子。
-
-    启动时创建数据库表，并确保系统中存在默认管理员用户。
+    """在应用启动时完成一些初始化操作，例如：数据库连接，启动一些后台任务之类的。
     """
     await ensure_default_admin()
     yield
@@ -36,6 +37,11 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router)
+
+    # 暴露 OSS 目录为静态资源，供头像等用户上传文件直接通过 URL 访问。
+    oss_path = oss_root_path()
+    oss_path.mkdir(parents=True, exist_ok=True)
+    app.mount("/oss", StaticFiles(directory=str(oss_path)), name="oss")
 
     return app
 
