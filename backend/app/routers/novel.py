@@ -1,14 +1,31 @@
 from __future__ import annotations
 
+import json
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_session
 from app.middlewares import common
 from app.routers.base import BaseView, route
 from app.schemas.novel import (
+    CrawlAnalyzePayload,
+    CrawlAnalyzeResult,
+    CrawlBookChapterCountResult,
+    CrawlBookDetailResult,
+    CrawlBookPayload,
+    CrawlChapterDraft,
+    CrawlChapterFetchPayload,
+    CrawlImportPayload,
+    CrawlImportResult,
+    CrawlSearchPayload,
+    CrawlSearchResult,
+    CrawlSourceDuplicate,
+    CrawlSourcePayload,
+    CrawlSourceRead,
+    CrawlSourceUpdate,
     NovelChapterBatchClean,
     NovelChapterBatchDelete,
     NovelChapterBatchResult,
@@ -59,6 +76,10 @@ class NovelView(BaseView):
         if isinstance(exc, novel_service.NovelChapterNotFoundError):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         if isinstance(exc, novel_service.NovelChapterValidationError):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        if isinstance(exc, novel_service.NovelCrawlSourceNotFoundError):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        if isinstance(exc, novel_service.NovelCrawlSourceValidationError):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         raise exc
 
@@ -234,6 +255,292 @@ class NovelView(BaseView):
         current_user_public_id = self._current_user_public_id(request)
         try:
             return await novel_service.update_event_state(session, project_public_id, current_user_public_id, payload)
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl-sources",
+        methods=["GET"],
+        response_model=list[CrawlSourceRead],
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="获取小说爬取来源",
+        description="获取当前项目可用的小说爬取来源。",
+    )
+    async def list_crawl_sources(
+        self,
+        project_public_id: str,
+        request: Request,
+        session: SessionDep,
+    ) -> list[CrawlSourceRead]:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.list_crawl_sources(session, project_public_id, current_user_public_id)
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl-sources",
+        methods=["POST"],
+        response_model=CrawlSourceRead,
+        status_code=status.HTTP_201_CREATED,
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="创建小说爬取来源",
+        description="为当前项目创建一个 API 型小说爬取来源。",
+    )
+    async def create_crawl_source(
+        self,
+        project_public_id: str,
+        payload: CrawlSourcePayload,
+        request: Request,
+        session: SessionDep,
+    ) -> CrawlSourceRead:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.create_crawl_source(session, project_public_id, current_user_public_id, payload)
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl-sources/analyze",
+        methods=["POST"],
+        response_model=CrawlAnalyzeResult,
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="分析小说爬取来源",
+        description="返回待完善的来源配置草稿。",
+    )
+    async def analyze_crawl_source(
+        self,
+        project_public_id: str,
+        payload: CrawlAnalyzePayload,
+        request: Request,
+        session: SessionDep,
+    ) -> CrawlAnalyzeResult:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.analyze_crawl_source(session, project_public_id, current_user_public_id, payload)
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl-sources/{key}",
+        methods=["PUT"],
+        response_model=CrawlSourceRead,
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="更新小说爬取来源",
+        description="更新当前项目下的小说爬取来源。",
+    )
+    async def update_crawl_source(
+        self,
+        project_public_id: str,
+        key: str,
+        payload: CrawlSourceUpdate,
+        request: Request,
+        session: SessionDep,
+    ) -> CrawlSourceRead:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.update_crawl_source(session, project_public_id, current_user_public_id, key, payload)
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl-sources/{key}",
+        methods=["DELETE"],
+        status_code=status.HTTP_204_NO_CONTENT,
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="删除小说爬取来源",
+        description="删除当前项目下的小说爬取来源。",
+    )
+    async def delete_crawl_source(
+        self,
+        project_public_id: str,
+        key: str,
+        request: Request,
+        session: SessionDep,
+    ) -> Response:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            await novel_service.delete_crawl_source(session, project_public_id, current_user_public_id, key)
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @route(
+        "/crawl-sources/{key}/duplicate",
+        methods=["POST"],
+        response_model=CrawlSourceRead,
+        status_code=status.HTTP_201_CREATED,
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="复制小说爬取来源",
+        description="把一个可见来源复制为当前项目的私有来源。",
+    )
+    async def duplicate_crawl_source(
+        self,
+        project_public_id: str,
+        key: str,
+        payload: CrawlSourceDuplicate,
+        request: Request,
+        session: SessionDep,
+    ) -> CrawlSourceRead:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.duplicate_crawl_source(
+                session,
+                project_public_id,
+                current_user_public_id,
+                key,
+                payload,
+            )
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl/search",
+        methods=["POST"],
+        response_model=list[CrawlSearchResult],
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="搜索可爬取小说",
+        description="使用当前来源配置搜索小说。",
+    )
+    async def search_crawl_books(
+        self,
+        project_public_id: str,
+        payload: CrawlSearchPayload,
+        request: Request,
+        session: SessionDep,
+    ) -> list[CrawlSearchResult]:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.search_crawl_books(session, project_public_id, current_user_public_id, payload)
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl/book-detail",
+        methods=["POST"],
+        response_model=CrawlBookDetailResult,
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="获取爬取小说详情",
+        description="点击小说后获取详情信息。",
+    )
+    async def fetch_crawl_book_detail(
+        self,
+        project_public_id: str,
+        payload: CrawlBookPayload,
+        request: Request,
+        session: SessionDep,
+    ) -> CrawlBookDetailResult:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.fetch_crawl_book_detail(session, project_public_id, current_user_public_id, payload)
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl/book-chapter-count",
+        methods=["POST"],
+        response_model=CrawlBookChapterCountResult,
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="获取爬取小说章节总数",
+        description="通过章节列表接口获取小说章节总数。",
+    )
+    async def fetch_crawl_book_chapter_count(
+        self,
+        project_public_id: str,
+        payload: CrawlBookPayload,
+        request: Request,
+        session: SessionDep,
+    ) -> CrawlBookChapterCountResult:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.fetch_crawl_book_chapter_count(
+                session,
+                project_public_id,
+                current_user_public_id,
+                payload,
+            )
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl/chapters",
+        methods=["POST"],
+        response_model=list[CrawlChapterDraft],
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="爬取小说章节",
+        description="使用多进程和子协程爬取指定章节范围。",
+    )
+    async def fetch_crawl_chapters(
+        self,
+        project_public_id: str,
+        payload: CrawlChapterFetchPayload,
+        request: Request,
+        session: SessionDep,
+    ) -> list[CrawlChapterDraft]:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.fetch_crawl_chapters(session, project_public_id, current_user_public_id, payload)
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+    @route(
+        "/crawl/chapters/stream",
+        methods=["POST"],
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="流式爬取小说章节",
+        description="以 NDJSON 形式返回章节爬取进度。",
+    )
+    async def stream_crawl_chapters(
+        self,
+        project_public_id: str,
+        payload: CrawlChapterFetchPayload,
+        request: Request,
+        session: SessionDep,
+    ) -> StreamingResponse:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            events = await novel_service.build_crawl_chapter_stream(
+                session,
+                project_public_id,
+                current_user_public_id,
+                payload,
+            )
+        except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
+            self._raise_as_http(exc)
+
+        async def render_events():
+            async for event in events:
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+
+        # StreamingResponse 流水响应响应对象，把当前视图方法中，yield产生的结果逐个返回给客户端
+        return StreamingResponse(
+            render_events(),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache", # 如果没有这两个响应头，则有可能遭到浏览器的缓存
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @route(
+        "/crawl/import",
+        methods=["POST"],
+        response_model=CrawlImportResult,
+        status_code=status.HTTP_201_CREATED,
+        middlewares=NOVEL_ROUTE_MIDDLEWARES,
+        summary="导入爬取小说章节",
+        description="把已爬取章节写入现有小说管理章节表。",
+    )
+    async def import_crawl_chapters(
+        self,
+        project_public_id: str,
+        payload: CrawlImportPayload,
+        request: Request,
+        session: SessionDep,
+    ) -> CrawlImportResult:
+        current_user_public_id = self._current_user_public_id(request)
+        try:
+            return await novel_service.import_crawl_chapters(session, project_public_id, current_user_public_id, payload)
         except (project_service.ProjectServiceError, novel_service.NovelServiceError) as exc:
             self._raise_as_http(exc)
 
