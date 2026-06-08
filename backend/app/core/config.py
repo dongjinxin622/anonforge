@@ -62,14 +62,31 @@ class Settings(object):
 
     visual_style_root: str = field(default_factory=lambda: os.getenv("VISUAL_STYLE_ROOT", "./data/skills/art_list"))
     director_manual_root: str = field(default_factory=lambda: os.getenv("DIRECTOR_MANUAL_ROOT", "./data/skills/director_manual"))
+    skills_root: str = field(default_factory=lambda: os.getenv("SKILLS_ROOT", "./data/skills"))
+    chapter_event_extraction_prompt_name: str = field(
+        default_factory=lambda: os.getenv("CHAPTER_EVENT_EXTRACTION_PROMPT_NAME", "chapter_event_extraction")
+    )
+    model_request_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("MODEL_REQUEST_TIMEOUT_SECONDS", "180"))
+    )
     provider_template_path: str = field(default_factory=lambda: os.getenv("PROVIDER_TEMPLATE_PATH", "./data/provider_template.py"))
 
-
 settings = Settings()
-
 
 def oss_root_path() -> Path:
     """返回 OSS 本地根目录，配置为相对路径时按工程根目录解析。"""
     configured = Path(settings.oss_root).expanduser()
     root = configured if configured.is_absolute() else BASE_DIR / configured
     return root.resolve()
+
+def project_path(configured_path: str) -> Path:
+    """按项目根目录解析配置路径。"""
+    configured = Path(configured_path).expanduser()
+    root = configured if configured.is_absolute() else BASE_DIR / configured
+    return root.resolve()
+
+
+def skills_root_path(config: Settings | None = None) -> Path:
+    """返回技能文档根目录。"""
+    current = config or settings
+    return project_path(current.skills_root)

@@ -88,6 +88,22 @@ class NovelChapterRead(NovelChapterBase):
     disabled_at: datetime | None
 
 
+class NovelChapterCleanStatus(BaseModel):
+    """章节事件清洗状态响应。"""
+
+    model_config = READ_SCHEMA_CONFIG
+
+    id: int
+    public_id: str
+    chapter_index: int
+    reel: str
+    chapter: str
+    event: str
+    event_state: int
+    error_reason: str | None
+    updated_at: datetime
+
+
 class NovelChapterPage(BaseModel):
     """小说章节分页响应。"""
 

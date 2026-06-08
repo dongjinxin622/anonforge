@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import AsyncIterator
 import json
+import logging
 
 from sqlalchemy import func, or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core import database
+from app.core.config import settings
 from app.models.novel import NovelChapter, NovelCrawlBook, NovelCrawlSource
 from app.schemas.novel import (
     CrawlAnalyzePayload,
@@ -28,6 +32,7 @@ from app.schemas.novel import (
     NovelChapterBatchClean,
     NovelChapterBatchDelete,
     NovelChapterBatchResult,
+    NovelChapterCleanStatus,
     NovelChapterCreate,
     NovelChapterEventStateUpdate,
     NovelChapterImport,
@@ -36,6 +41,8 @@ from app.schemas.novel import (
     NovelChapterUpdate,
     NovelImportSplitRule,
 )
+from app.services.agent_gateway import ProviderModelGateway
+from app.services.prompt_registry import PromptRegistry
 from app.services import novel_crawler
 from app.services import project as project_service
 from app.utils.novel_import_rules import get_builtin_import_split_rules
@@ -95,6 +102,15 @@ CRAWL_SOURCE_CONFIG_FIELDS = (
     "api_chapter_time_path",
     "api_chapter_md5_path",
 )
+
+# 要求单章字数必须长度在800以上才会交给大模型。
+MIN_EVENT_EXTRACTION_CONTENT_LENGTH = 300
+# 单章事件清晰的并发数量（设置最多允许多少个清洗任务同时执行，默认设为3）
+SINGLE_CHAPTER_CLEAN_MAX_CONCURRENCY = 3
+logger = logging.getLogger(__name__)
+_single_chapter_clean_tasks: set[asyncio.Task[None]] = set()
+_single_chapter_clean_semaphore: asyncio.Semaphore | None = None
+_single_chapter_clean_semaphore_loop: asyncio.AbstractEventLoop | None = None
 
 
 class NovelServiceError(Exception):
@@ -171,6 +187,20 @@ async def get_chapter(
     project = await _get_project_with_id(session, project_public_id, current_user_public_id)
     chapter = await _get_chapter_model_or_raise(session, project.id, chapter_id)
     return _to_read(chapter)
+
+
+async def list_chapter_clean_statuses(
+    session: AsyncSession,
+    project_public_id: str,
+    current_user_public_id: str,
+    chapter_ids: list[int],
+) -> list[NovelChapterCleanStatus]:
+    """批量获取章节事件清洗状态，不返回章节正文。"""
+    if not chapter_ids:
+        raise NovelChapterValidationError("请选择要查询的章节")
+    project = await _get_project_with_id(session, project_public_id, current_user_public_id)
+    chapters = await _list_chapter_models_by_ids(session, project.id, chapter_ids)
+    return [_to_clean_status(chapter) for chapter in chapters]
 
 
 async def create_chapter(
@@ -670,12 +700,103 @@ async def clean_chapter(
     """清洗单个章节事件。"""
     project = await _get_project_with_id(session, project_public_id, current_user_public_id)
     chapter = await _get_chapter_model_or_raise(session, project.id, chapter_id)
-    _apply_clean_result(chapter)
+    await _apply_chapter_event_extraction(chapter, project.text_model)
     chapter.updated_at = utc_now()
     session.add(chapter)
     await session.commit()
     await session.refresh(chapter)
     return _to_read(chapter)
+
+
+async def queue_clean_chapter(
+    session: AsyncSession,
+    project_public_id: str,
+    chapter_id: int,
+    current_user_public_id: str,
+) -> NovelChapterRead:
+    """提交单章事件提取前，将章节重置为待清洗状态。"""
+    project = await _get_project_with_id(session, project_public_id, current_user_public_id)
+    chapter = await _get_chapter_model_or_raise(session, project.id, chapter_id)
+    chapter.event = ""
+    chapter.event_state = 0
+    chapter.error_reason = None
+    chapter.updated_at = utc_now()
+    session.add(chapter)
+    await session.commit()
+    await session.refresh(chapter)
+    return _to_read(chapter)
+
+
+async def clean_chapter_in_background(
+    project_public_id: str,
+    chapter_id: int,
+    current_user_public_id: str,
+) -> None:
+    """在后台任务中使用独立数据库会话清洗单章事件。"""
+    async with database.async_session_maker() as session:
+        try:
+            await clean_chapter(session, project_public_id, chapter_id, current_user_public_id)
+        except Exception:
+            await session.rollback()
+            logger.exception(
+                "后台清洗章节事件失败：project_public_id=%s chapter_id=%s",
+                project_public_id,
+                chapter_id,
+            )
+
+
+def submit_clean_chapter_task(
+    project_public_id: str,
+    chapter_id: int,
+    current_user_public_id: str,
+) -> None:
+    """提交单章事件清洗任务，并允许多个章节在后台并发处理。"""
+    # 把清洗章节任务放后台（无阻塞）异步运行
+    task = asyncio.create_task(
+        _run_submitted_clean_chapter_task(
+            project_public_id,
+            chapter_id,
+            current_user_public_id,
+        )
+    )
+    # 添加任务记录到数据库
+    _single_chapter_clean_tasks.add(task)
+    # 回调函数
+    task.add_done_callback(_discard_single_chapter_clean_task)
+
+
+async def _run_submitted_clean_chapter_task(
+    project_public_id: str,
+    chapter_id: int,
+    current_user_public_id: str,
+) -> None:
+    semaphore = _get_single_chapter_clean_semaphore()
+    async with semaphore:
+        await clean_chapter_in_background(project_public_id, chapter_id, current_user_public_id)
+
+
+def _get_single_chapter_clean_semaphore() -> asyncio.Semaphore:
+    global _single_chapter_clean_semaphore, _single_chapter_clean_semaphore_loop
+
+    loop = asyncio.get_running_loop()
+    if _single_chapter_clean_semaphore is None or _single_chapter_clean_semaphore_loop is not loop:
+        _single_chapter_clean_semaphore = asyncio.Semaphore(SINGLE_CHAPTER_CLEAN_MAX_CONCURRENCY)
+        _single_chapter_clean_semaphore_loop = loop
+    return _single_chapter_clean_semaphore
+
+
+def _discard_single_chapter_clean_task(task: asyncio.Task[None]) -> None:
+    # 把任务结果注册到内存的列表中，后面我们实现批量章节清洗时，会使用Redis/RabbitMQ替代_single_chapter_clean_tasks
+    _single_chapter_clean_tasks.discard(task)
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return
+    if exc is not None:
+        logger.error(
+            "单章事件清洗任务异常",
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
 
 
 async def batch_clean_chapters(
@@ -798,6 +919,94 @@ def _apply_clean_result(chapter: NovelChapter) -> None:
     )
     chapter.event_state = 1
     chapter.error_reason = None
+
+
+async def _apply_chapter_event_extraction(chapter: NovelChapter, text_model: str) -> None:
+    """调用文本模型提取单章事件。"""
+    content = chapter.chapter_data.strip()
+    if len(content) < MIN_EVENT_EXTRACTION_CONTENT_LENGTH:
+        _mark_event_extraction_failed(chapter, "正文字数过少，无法提取有效事件")
+        return
+
+    model_id = text_model.strip()
+    if not model_id:
+        _mark_event_extraction_failed(chapter, "项目未配置文本模型")
+        return
+
+    try:
+        prompt_name = settings.chapter_event_extraction_prompt_name.strip()
+        if not prompt_name:
+            raise NovelChapterValidationError("单章事件提取提示词名称未配置")
+        prompt = PromptRegistry.from_settings().skill(prompt_name)
+        raw_event = await ProviderModelGateway(timeout=settings.model_request_timeout_seconds).generate_text(
+            model_id=model_id,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": _chapter_event_user_message(chapter, content)},
+            ],
+        )
+        payload = _parse_chapter_event_payload(raw_event)
+    except Exception as exc:
+        _mark_event_extraction_failed(chapter, str(exc))
+        return
+
+    chapter.event = json.dumps(payload, ensure_ascii=False, indent=2)
+    chapter.event_state = 1
+    chapter.error_reason = None
+
+
+def _chapter_event_user_message(chapter: NovelChapter, content: str) -> str:
+    return (
+        f"章节标题：{chapter.chapter.strip() or '未提及'}\n"
+        f"卷名：{chapter.reel.strip() or '未提及'}\n\n"
+        "章节正文：\n"
+        f"{content}"
+    )
+
+
+def _parse_chapter_event_payload(raw_event: str) -> dict[str, object]:
+    text = _strip_json_code_fence(raw_event)
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise NovelChapterValidationError("事件提取结果不是合法 JSON") from exc
+    if not isinstance(payload, dict):
+        raise NovelChapterValidationError("事件提取结果必须是 JSON 对象")
+    if set(payload.keys()) != {"events"}:
+        raise NovelChapterValidationError("事件提取结果顶层只能包含 events 字段")
+    if not isinstance(payload["events"], list):
+        raise NovelChapterValidationError("事件提取结果 events 字段必须是数组")
+    return {"events": payload["events"]}
+
+
+def _strip_json_code_fence(raw_event: str) -> str:
+    text = raw_event.strip()
+    if not text.startswith("```"):
+        return text
+    lines = text.splitlines()
+    if len(lines) >= 3 and lines[-1].strip() == "```":
+        return "\n".join(lines[1:-1]).strip()
+    return text
+
+
+def _mark_event_extraction_failed(chapter: NovelChapter, reason: str) -> None:
+    chapter.event = ""
+    chapter.event_state = -1
+    chapter.error_reason = reason.strip() or "事件提取失败"
+
+
+def _to_clean_status(chapter: NovelChapter) -> NovelChapterCleanStatus:
+    return NovelChapterCleanStatus(
+        id=int(chapter.id or 0),
+        publicId=chapter.public_id,
+        chapterIndex=chapter.chapter_index,
+        reel=chapter.reel,
+        chapter=chapter.chapter,
+        event=chapter.event,
+        eventState=chapter.event_state,
+        errorReason=chapter.error_reason,
+        updatedAt=chapter.updated_at,
+    )
 
 
 def _state_for_event(event: str, requested_state: int) -> int:
