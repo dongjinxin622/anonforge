@@ -18,7 +18,7 @@
           </el-tooltip>
 
           <el-tooltip content="任务" placement="right">
-            <button class="nav-btn" aria-label="任务" @click="showComingSoon">
+            <button class="nav-btn" aria-label="任务" @click="goTasks">
               <el-icon><List /></el-icon>
             </button>
           </el-tooltip>
@@ -87,7 +87,7 @@
           <div class="toolbar-spacer"></div>
 
           <el-button
-            :disabled="selectedRows.length === 0 || cleaning"
+            :disabled="batchCleanDisabled"
             :loading="cleaning"
             @click="batchCleanSelected"
           >
@@ -96,7 +96,7 @@
           </el-button>
 
           <el-button
-            :disabled="selectedRows.length === 0"
+            :disabled="batchDeleteDisabled"
             type="danger"
             @click="batchDeleteSelected"
           >
@@ -105,8 +105,54 @@
           </el-button>
         </section>
 
+        <section v-if="batchCleanJob" class="batch-clean-banner">
+          <div class="batch-clean-banner__head">
+            <div class="batch-clean-banner__title">
+              <el-icon class="banner-icon"><MagicStick /></el-icon>
+              <span>批量清洗进度</span>
+              <el-tag class="banner-status-tag" :type="batchCleanBannerTagType" effect="dark" round>
+                {{ batchCleanBannerStatusLabel }}
+              </el-tag>
+            </div>
+            <div class="batch-clean-banner__meta">
+              <span>已完成 {{ batchCleanJob.finishedCount }} / {{ batchCleanJob.totalCount }}</span>
+              <span v-if="batchCleanJob.runningCount > 0">运行中 {{ batchCleanJob.runningCount }}</span>
+              <span v-if="batchCleanJob.failedCount > 0" class="meta-fail">失败 {{ batchCleanJob.failedCount }}</span>
+              <span v-if="batchCleanJob.canceledCount > 0" class="meta-cancel">已取消 {{ batchCleanJob.canceledCount }}</span>
+              <el-button
+                v-if="!batchCleanJob.isFinished"
+                class="banner-cancel"
+                size="small"
+                type="danger"
+                plain
+                :loading="batchCleanCancelLoading"
+                @click="cancelBatchCleanJob"
+              >
+                取消任务
+              </el-button>
+              <el-button
+                v-else
+                class="banner-cancel"
+                size="small"
+                plain
+                @click="dismissBatchCleanBanner"
+              >
+                关闭
+              </el-button>
+            </div>
+          </div>
+          <el-progress
+            class="batch-clean-banner__bar"
+            :percentage="batchCleanProgressPercent"
+            :status="batchCleanProgressStatus"
+            :stroke-width="10"
+            :show-text="false"
+          />
+        </section>
+
         <section class="table-wrap">
           <el-table
+            ref="novelTableRef"
             v-loading="loading"
             :data="pagedNovels"
             class="novel-table"
@@ -116,7 +162,7 @@
             :tooltip-options="{ effect: 'dark', popperClass: 'novel-cell-tooltip' }"
             @selection-change="onSelectionChange"
           >
-            <el-table-column type="selection" width="48" />
+            <el-table-column type="selection" width="48" :selectable="isRowSelectable" reserve-selection />
 
             <el-table-column prop="chapterIndex" label="序号" width="80">
               <template #default="{ row }">
@@ -140,10 +186,16 @@
 
             <el-table-column label="事件状态" width="160">
               <template #default="{ row }">
-                <span class="status-chip" :class="`status-chip--${statusKey(row.eventState)}`">
-                  <span class="status-dot"></span>
-                  {{ statusLabel(row.eventState) }}
-                </span>
+                <el-tooltip
+                  :disabled="!row.errorReason || row.cleaningInline"
+                  :content="row.errorReason || ''"
+                  placement="top"
+                >
+                  <span class="status-chip" :class="`status-chip--${eventStatusKey(row)}`">
+                    <span class="status-dot"></span>
+                    {{ eventStatusLabel(row) }}
+                  </span>
+                </el-tooltip>
               </template>
             </el-table-column>
 
@@ -160,7 +212,8 @@
                     text
                     circle
                     class="icon-action"
-                    :disabled="row.eventState === 0 && row.cleaningInline"
+                    :disabled="row.cleaningInline || cleaning"
+                    :loading="row.cleaningInline"
                     @click="cleanSingle(row)"
                   >
                     <el-icon><MagicStick /></el-icon>
@@ -168,13 +221,25 @@
                 </el-tooltip>
 
                 <el-tooltip content="编辑" placement="top">
-                  <el-button text circle class="icon-action" @click="openEditDialog(row)">
+                  <el-button
+                    text
+                    circle
+                    class="icon-action"
+                    :disabled="row.cleaningInline || cleaning"
+                    @click="openEditDialog(row)"
+                  >
                     <el-icon><EditPen /></el-icon>
                   </el-button>
                 </el-tooltip>
 
                 <el-tooltip content="删除" placement="top">
-                  <el-button text circle class="icon-action delete" @click="handleDelete(row)">
+                  <el-button
+                    text
+                    circle
+                    class="icon-action delete"
+                    :disabled="row.cleaningInline || cleaning"
+                    @click="handleDelete(row)"
+                  >
                     <el-icon><Delete /></el-icon>
                   </el-button>
                 </el-tooltip>
@@ -276,13 +341,16 @@
         <div class="view-field">
           <div class="view-field__label-row">
             <label class="view-field__label">事件内容</label>
-            <span class="status-chip" :class="`status-chip--${statusKey(viewingNovel.eventState)}`">
+            <span class="status-chip" :class="`status-chip--${eventStatusKey(viewingNovel)}`">
               <span class="status-dot"></span>
-              {{ statusLabel(viewingNovel.eventState) }}
+              {{ eventStatusLabel(viewingNovel) }}
             </span>
           </div>
 
-          <div v-if="viewingNovel.eventState === 1" class="view-field__value view-event">
+          <div v-if="viewingNovel.cleaningInline" class="view-field__value view-progress">
+            正在后台清洗章节事件，可稍后查看结果。
+          </div>
+          <div v-else-if="viewingNovel.eventState === 1" class="view-field__value view-event">
             {{ viewingNovel.event }}
           </div>
           <div v-else-if="viewingNovel.eventState === -1" class="view-field__value view-error">
@@ -313,6 +381,7 @@
           <el-button
             type="primary"
             :loading="viewingNovel.cleaningInline"
+            :disabled="viewingNovel.cleaningInline || cleaning"
             @click="cleanSingle(viewingNovel)"
           >
             <el-icon><MagicStick /></el-icon>
@@ -328,15 +397,21 @@
       @submit="handleImportSubmit"
     />
 
+    <NovelCrawlDialog
+      v-model="crawlDialogVisible"
+      :project-public-id="projectPublicId"
+      @submit="handleCrawlSubmit"
+    />
+
     <Settings v-model="settingsVisible" />
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { AxiosError } from 'axios'
-import type { FormInstance, FormRules } from 'element-plus'
+import type { FormInstance, FormRules, TableInstance } from 'element-plus'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Connection,
@@ -357,17 +432,27 @@ import {
 import {
   batchCleanNovelChaptersApi,
   batchDeleteNovelChaptersApi,
+  cancelBatchCleanJobApi,
   cleanNovelChapterApi,
   createNovelChapterApi,
   deleteNovelChapterApi,
+  getBatchCleanJobProgressApi,
+  importCrawlChaptersApi,
   importNovelChaptersApi,
+  listNovelChapterCleanStatusesApi,
   listNovelChaptersApi,
   updateNovelChapterApi,
+  type CrawlChapterDraft,
+  type CrawlSearchResult,
   type EventState,
+  type NovelChapterBatchResult,
+  type NovelChapterBatchCleanProgress,
+  type NovelChapterCleanStatus,
   type NovelChapterImportItemPayload,
   type NovelChapterPayload,
   type NovelChapterRecord,
 } from '@/api/novel'
+import NovelCrawlDialog from '../components/NovelCrawlDialog.vue'
 import NovelImportDialog from '../components/NovelImportDialog.vue'
 import Settings from '../components/Settings.vue'
 
@@ -404,6 +489,23 @@ const cleaning = ref(false)
 const submitting = ref(false)
 
 const selectedRows = ref<NovelChapter[]>([])
+const novelTableRef = ref<TableInstance | null>(null)
+
+const clearChapterSelection = () => {
+  novelTableRef.value?.clearSelection()
+  selectedRows.value = []
+}
+
+const batchCleanJob = ref<NovelChapterBatchCleanProgress | null>(null)
+const batchCleanJobPublicId = ref<string>('')
+const batchCleanCancelLoading = ref(false)
+let batchCleanPollTimer: number | undefined
+let singleCleanPollTimer: number | undefined
+let singleCleanPollInFlight = false
+const singleCleanPollingChapterIds = new Set<number>()
+const singleCleanPollAttempts = new Map<number, number>()
+const SINGLE_CLEAN_POLL_INTERVAL_MS = 8000
+const SINGLE_CLEAN_MAX_POLL_ATTEMPTS = 80
 
 const formDialogVisible = ref(false)
 const formMode = ref<'create' | 'edit'>('create')
@@ -432,6 +534,64 @@ const pagedNovels = computed(() => novels.value)
 
 const formDialogTitle = computed(() => (formMode.value === 'create' ? '新建章节' : '编辑章节'))
 
+const selectedCleaningCount = computed(() => selectedRows.value.filter(isChapterCleaning).length)
+
+const batchCleanRunning = computed(() => Boolean(batchCleanJob.value && !batchCleanJob.value.isFinished))
+
+const batchCleanDisabled = computed(() => (
+  selectedRows.value.length === 0 || cleaning.value || selectedCleaningCount.value > 0 || batchCleanRunning.value
+))
+
+const batchDeleteDisabled = computed(() => (
+  selectedRows.value.length === 0 || cleaning.value || selectedCleaningCount.value > 0 || batchCleanRunning.value
+))
+
+const batchCleanProgressPercent = computed(() => {
+  const job = batchCleanJob.value
+  if (!job || job.totalCount === 0) return 0
+  return Math.min(100, Math.round((job.finishedCount / job.totalCount) * 100))
+})
+
+const batchCleanProgressStatus = computed<'success' | 'exception' | 'warning' | undefined>(() => {
+  const job = batchCleanJob.value
+  if (!job) return undefined
+  if (job.jobStatus === 'failed') return 'exception'
+  if (job.jobStatus === 'partial_failed') return 'warning'
+  if (job.jobStatus === 'canceled') return 'warning'
+  if (job.jobStatus === 'succeeded') return 'success'
+  return undefined
+})
+
+const batchCleanBannerTagType = computed<'' | 'success' | 'info' | 'warning' | 'danger'>(() => {
+  const job = batchCleanJob.value
+  if (!job) return 'info'
+  switch (job.jobStatus) {
+    case 'succeeded': return 'success'
+    case 'failed': return 'danger'
+    case 'partial_failed': return 'warning'
+    case 'canceled': return 'info'
+    case 'paused': return 'warning'
+    case 'running': return ''
+    case 'pending':
+    default: return 'info'
+  }
+})
+
+const batchCleanBannerStatusLabel = computed(() => {
+  const job = batchCleanJob.value
+  if (!job) return ''
+  switch (job.jobStatus) {
+    case 'pending': return '等待开始'
+    case 'running': return '清洗中'
+    case 'succeeded': return '已完成'
+    case 'failed': return '执行失败'
+    case 'partial_failed': return '部分失败'
+    case 'canceled': return '已取消'
+    case 'paused': return '已暂停'
+    default: return job.jobStatus
+  }
+})
+
 const viewingNovel = computed(() =>
   viewingNovelId.value ? novels.value.find((item) => item.id === viewingNovelId.value) ?? null : null,
 )
@@ -452,9 +612,11 @@ const fetchNovels = async () => {
       currentPage.value = lastPage
       return
     }
-    novels.value = data.data.map((item) => ({ ...item }))
+    novels.value = data.data.map((item) => ({
+      ...item,
+      cleaningInline: singleCleanPollingChapterIds.has(item.id),
+    }))
     totalNovels.value = data.total
-    selectedRows.value = []
   } catch (error) {
     ElMessage.error(`章节加载失败：${getErrorMessage(error)}`)
   } finally {
@@ -473,6 +635,18 @@ const statusLabel = (state: EventState) => {
   if (state === -1) return '清洗失败'
   return '待清洗'
 }
+
+const isChapterCleaning = (chapter: NovelChapter) => Boolean(chapter.cleaningInline)
+
+const eventStatusKey = (chapter: NovelChapter) => (
+  isChapterCleaning(chapter) ? 'running' : statusKey(chapter.eventState)
+)
+
+const eventStatusLabel = (chapter: NovelChapter) => (
+  isChapterCleaning(chapter) ? '清洗中' : statusLabel(chapter.eventState)
+)
+
+const isRowSelectable = (row: NovelChapter) => !cleaning.value && !isChapterCleaning(row)
 
 const splitParagraphs = (raw: string) => (raw || '').split(/\n+/).filter(Boolean)
 
@@ -582,7 +756,7 @@ const batchDeleteSelected = async () => {
       viewDrawerVisible.value = false
       viewingNovelId.value = null
     }
-    selectedRows.value = []
+    clearChapterSelection()
     ElMessage.success('选中章节已删除')
     await fetchNovels()
   } catch (error) {
@@ -592,37 +766,295 @@ const batchDeleteSelected = async () => {
 }
 
 const cleanSingle = async (row: NovelChapter) => {
-  if (!ensureProjectReady() || row.cleaningInline) return
+  if (!ensureProjectReady() || row.cleaningInline || cleaning.value) return
+  if (row.eventState === 1) {
+    try {
+      await ElMessageBox.confirm(`确定重新清洗「${row.chapter}」的事件吗？现有事件内容会被覆盖。`, '重新清洗事件', {
+        confirmButtonText: '重新清洗',
+        cancelButtonText: '取消',
+        type: 'warning',
+        customClass: 'novel-dark-messagebox',
+      })
+    } catch (error) {
+      if (error === 'cancel' || error === 'close') return
+      ElMessage.error(`确认失败：${getErrorMessage(error)}`)
+      return
+    }
+  }
   row.cleaningInline = true
   try {
     const { data } = await cleanNovelChapterApi(projectPublicId.value, row.id)
-    replaceChapter({ ...data, cleaningInline: false })
-    if (data.eventState === 1) {
-      ElMessage.success(`「${data.chapter}」事件已生成`)
-    } else {
-      ElMessage.warning(data.errorReason || `「${data.chapter}」暂未生成事件`)
-    }
+    replaceChapter({ ...data, cleaningInline: true })
+    ElMessage.success(`「${data.chapter}」事件清洗已提交`)
+    startSingleCleanPolling(data.id)
   } catch (error) {
     row.cleaningInline = false
     ElMessage.error(`清洗失败：${getErrorMessage(error)}`)
   }
 }
 
+const pollSingleCleanBatchOnce = async () => {
+  if (!projectPublicId.value) {
+    stopAllSingleCleanPolling()
+    return
+  }
+  if (singleCleanPollInFlight || singleCleanPollingChapterIds.size === 0) {
+    return
+  }
+
+  const pollChapterIds = Array.from(singleCleanPollingChapterIds)
+  const timeoutChapterIds: number[] = []
+  pollChapterIds.forEach((chapterId) => {
+    const attempts = (singleCleanPollAttempts.get(chapterId) ?? 0) + 1
+    singleCleanPollAttempts.set(chapterId, attempts)
+    if (attempts > SINGLE_CLEAN_MAX_POLL_ATTEMPTS) {
+      timeoutChapterIds.push(chapterId)
+    }
+  })
+  timeoutChapterIds.forEach((chapterId) => {
+    const row = novels.value.find((item) => item.id === chapterId)
+    if (row) row.cleaningInline = false
+    stopSingleCleanPolling(chapterId)
+  })
+  if (timeoutChapterIds.length > 0) {
+    ElMessage.warning(`仍有 ${timeoutChapterIds.length} 个章节在后台清洗，可稍后刷新查看结果`)
+  }
+  const activeChapterIds = Array.from(singleCleanPollingChapterIds)
+  if (activeChapterIds.length === 0) return
+
+  singleCleanPollInFlight = true
+  try {
+    const { data } = await listNovelChapterCleanStatusesApi(projectPublicId.value, activeChapterIds)
+    const latestById = new Map(data.map((item) => [item.id, item]))
+    activeChapterIds.forEach((chapterId) => {
+      const latest = latestById.get(chapterId)
+      if (!latest) {
+        stopSingleCleanPolling(chapterId)
+        return
+      }
+      if (latest.eventState === 0) {
+        applyChapterCleanStatus(latest, true)
+        return
+      }
+
+      stopSingleCleanPolling(chapterId)
+      applyChapterCleanStatus(latest, false)
+      if (latest.eventState === 1) {
+        ElMessage.success(`「${latest.chapter}」事件已生成`)
+      } else {
+        ElMessage.warning(latest.errorReason || `「${latest.chapter}」事件清洗失败`)
+      }
+    })
+  } catch (error) {
+    singleCleanPollingChapterIds.forEach((chapterId) => {
+      const row = novels.value.find((item) => item.id === chapterId)
+      if (row) row.cleaningInline = false
+    })
+    stopAllSingleCleanPolling()
+    ElMessage.error(`事件清洗结果刷新失败：${getErrorMessage(error)}`)
+  } finally {
+    singleCleanPollInFlight = false
+  }
+}
+
+const applyChapterCleanStatus = (status: NovelChapterCleanStatus, cleaningInline: boolean) => {
+  const row = novels.value.find((item) => item.id === status.id)
+  if (!row) return
+  row.publicId = status.publicId
+  row.chapterIndex = status.chapterIndex
+  row.reel = status.reel
+  row.chapter = status.chapter
+  row.event = status.event
+  row.eventState = status.eventState
+  row.errorReason = status.errorReason
+  row.updatedAt = status.updatedAt
+  row.cleaningInline = cleaningInline
+}
+
+const startSingleCleanPolling = (chapterId: number) => {
+  stopSingleCleanPolling(chapterId)
+  singleCleanPollingChapterIds.add(chapterId)
+  singleCleanPollAttempts.set(chapterId, 0)
+  const row = novels.value.find((item) => item.id === chapterId)
+  if (row) row.cleaningInline = true
+  if (singleCleanPollTimer === undefined) {
+    singleCleanPollTimer = window.setInterval(() => {
+      void pollSingleCleanBatchOnce()
+    }, SINGLE_CLEAN_POLL_INTERVAL_MS)
+  }
+}
+
+const stopSingleCleanPolling = (chapterId: number) => {
+  singleCleanPollingChapterIds.delete(chapterId)
+  singleCleanPollAttempts.delete(chapterId)
+  if (singleCleanPollingChapterIds.size === 0 && singleCleanPollTimer !== undefined) {
+    window.clearInterval(singleCleanPollTimer)
+    singleCleanPollTimer = undefined
+  }
+}
+
+const stopAllSingleCleanPolling = () => {
+  if (singleCleanPollTimer !== undefined) {
+    window.clearInterval(singleCleanPollTimer)
+    singleCleanPollTimer = undefined
+  }
+  singleCleanPollingChapterIds.clear()
+  singleCleanPollAttempts.clear()
+}
+
 const batchCleanSelected = async () => {
   if (!ensureProjectReady() || selectedRows.value.length === 0) return
-  cleaning.value = true
+  if (batchCleanRunning.value) {
+    ElMessage.warning('已有批量清洗任务正在执行，请等待或取消后再提交新任务')
+    return
+  }
   const ids = selectedRows.value.map((row) => row.id)
+  if (ids.length === 0) return
+  try {
+    await ElMessageBox.confirm(
+      `确定清洗选中的 ${ids.length} 个章节事件吗？已生成的事件会被覆盖。`,
+      '批量清洗事件',
+      {
+        confirmButtonText: '开始清洗',
+        cancelButtonText: '取消',
+        type: 'warning',
+        customClass: 'novel-dark-messagebox',
+      },
+    )
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(`确认失败：${getErrorMessage(error)}`)
+    return
+  }
+
+  cleaning.value = true
   markRowsCleaning(ids, true)
   try {
-    await batchCleanNovelChaptersApi(projectPublicId.value, { ids })
-    selectedRows.value = []
-    ElMessage.success(`已清洗 ${ids.length} 个章节`)
-    await fetchNovels()
+    const { data } = await batchCleanNovelChaptersApi(projectPublicId.value, { ids })
+    clearChapterSelection()
+    if (isBatchCleanProgress(data)) {
+      ElMessage.success(`已提交批量清洗任务，共 ${data.totalCount} 个章节`)
+      startBatchCleanPolling(data.jobPublicId)
+    } else {
+      ElMessage.success(`已清洗 ${data.affected} 个章节`)
+      await fetchNovels()
+    }
   } catch (error) {
-    ElMessage.error(`批量清洗失败：${getErrorMessage(error)}`)
-  } finally {
     markRowsCleaning(ids, false)
+    ElMessage.error(`批量清洗提交失败：${getErrorMessage(error)}`)
+  } finally {
     cleaning.value = false
+  }
+}
+
+const applyBatchCleanProgress = (progress: NovelChapterBatchCleanProgress) => {
+  batchCleanJob.value = progress
+  const itemByChapter = new Map<number, NovelChapterBatchCleanProgress['items'][number]>()
+  progress.items.forEach((item) => {
+    itemByChapter.set(item.chapterId, item)
+  })
+  novels.value.forEach((row) => {
+    const item = itemByChapter.get(row.id)
+    if (!item) return
+    if (item.itemStatus === 'pending' || item.itemStatus === 'running') {
+      row.cleaningInline = true
+      return
+    }
+    row.cleaningInline = false
+    row.eventState = (item.eventState as EventState) ?? row.eventState
+    row.event = item.event
+    row.errorReason = item.errorReason
+  })
+}
+
+const isBatchCleanProgress = (
+  data: NovelChapterBatchResult | NovelChapterBatchCleanProgress,
+): data is NovelChapterBatchCleanProgress => (
+  'jobPublicId' in data && 'totalCount' in data
+)
+
+const summarizeJobFinish = (progress: NovelChapterBatchCleanProgress) => {
+  const total = progress.totalCount
+  const ok = progress.succeededCount
+  const fail = progress.failedCount
+  const canceled = progress.canceledCount
+  switch (progress.jobStatus) {
+    case 'succeeded': return `批量清洗已完成：成功 ${ok} / ${total}`
+    case 'partial_failed': return `批量清洗部分完成：成功 ${ok}，失败 ${fail}`
+    case 'failed': return `批量清洗失败：成功 ${ok}，失败 ${fail}`
+    case 'canceled': return `批量清洗已取消：成功 ${ok}，未执行 ${canceled}`
+    default: return '批量清洗已结束'
+  }
+}
+
+const pollBatchCleanOnce = async (jobPublicId: string) => {
+  try {
+    const { data } = await getBatchCleanJobProgressApi(projectPublicId.value, jobPublicId)
+    applyBatchCleanProgress(data)
+    if (data.isFinished) {
+      stopBatchCleanPolling()
+      await fetchNovels()
+      const summary = summarizeJobFinish(data)
+      if (data.jobStatus === 'succeeded') {
+        ElMessage.success(summary)
+      } else if (data.jobStatus === 'canceled') {
+        ElMessage.info(summary)
+      } else {
+        ElMessage.warning(summary)
+      }
+    }
+  } catch (error) {
+    stopBatchCleanPolling()
+    ElMessage.error(`批量清洗进度查询失败：${getErrorMessage(error)}`)
+  }
+}
+
+const startBatchCleanPolling = (jobPublicId: string) => {
+  stopBatchCleanPolling()
+  batchCleanJobPublicId.value = jobPublicId
+  void pollBatchCleanOnce(jobPublicId)
+  batchCleanPollTimer = window.setInterval(() => {
+    void pollBatchCleanOnce(jobPublicId)
+  }, 5000)
+}
+
+const stopBatchCleanPolling = () => {
+  if (batchCleanPollTimer !== undefined) {
+    window.clearInterval(batchCleanPollTimer)
+    batchCleanPollTimer = undefined
+  }
+}
+
+const dismissBatchCleanBanner = () => {
+  stopBatchCleanPolling()
+  batchCleanJob.value = null
+  batchCleanJobPublicId.value = ''
+}
+
+const cancelBatchCleanJob = async () => {
+  if (!batchCleanJobPublicId.value || batchCleanCancelLoading.value) return
+  try {
+    await ElMessageBox.confirm('确定取消批量清洗任务吗？已开始执行的章节会继续到当前请求结束。', '取消批量清洗', {
+      confirmButtonText: '确认取消',
+      cancelButtonText: '继续执行',
+      type: 'warning',
+      confirmButtonClass: 'el-button--danger',
+      customClass: 'novel-dark-messagebox',
+    })
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(`确认失败：${getErrorMessage(error)}`)
+    return
+  }
+  batchCleanCancelLoading.value = true
+  try {
+    const { data } = await cancelBatchCleanJobApi(projectPublicId.value, batchCleanJobPublicId.value)
+    ElMessage.info(`已请求取消，待执行章节 ${data.canceledCount} 个已停止`)
+    await pollBatchCleanOnce(batchCleanJobPublicId.value)
+  } catch (error) {
+    ElMessage.error(`取消失败：${getErrorMessage(error)}`)
+  } finally {
+    batchCleanCancelLoading.value = false
   }
 }
 
@@ -633,6 +1065,14 @@ const openViewDrawer = (row: NovelChapter) => {
 
 const goProject = () => {
   router.push('/project')
+}
+
+const goTasks = () => {
+  if (!projectPublicId.value) {
+    ElMessage.warning('项目信息尚未加载完成，请稍候再试')
+    return
+  }
+  router.push({ path: '/tasks', query: { id: projectPublicId.value } })
 }
 
 const showComingSoon = () => {
@@ -669,8 +1109,28 @@ const handleImportSubmit = async (drafts: ImportChapterDraft[]) => {
   }
 }
 
+const crawlDialogVisible = ref(false)
 const openCrawlDialog = () => {
-  ElMessage.info('功能开发中')
+  if (!ensureProjectReady()) return
+  crawlDialogVisible.value = true
+}
+
+const handleCrawlSubmit = async (drafts: CrawlChapterDraft[], book: CrawlSearchResult) => {
+  if (!ensureProjectReady() || drafts.length === 0) return
+  try {
+    const { data } = await importCrawlChaptersApi(projectPublicId.value, {
+      sourceKey: book.sourceKey,
+      book,
+      chapters: drafts,
+    })
+    ElMessage.success(`爬取导入完成：新增 ${data.created}，更新 ${data.updated}，跳过 ${data.skipped}`)
+    if (data.created > 0) {
+      currentPage.value = Math.max(1, Math.ceil((totalNovels.value + data.created) / pageSize.value))
+    }
+    await fetchNovels()
+  } catch (error) {
+    ElMessage.error(`小说爬取导入失败：${getErrorMessage(error)}`)
+  }
 }
 
 const handleSearchClear = () => {
@@ -726,10 +1186,14 @@ const loadRouteProject = () => {
     return
   }
   if (projectPublicId.value !== id) {
+    stopAllSingleCleanPolling()
+    stopBatchCleanPolling()
+    batchCleanJob.value = null
+    batchCleanJobPublicId.value = ''
     projectPublicId.value = id
     novels.value = []
     totalNovels.value = 0
-    selectedRows.value = []
+    clearChapterSelection()
   }
   if (currentPage.value !== 1) {
     currentPage.value = 1
@@ -796,9 +1260,19 @@ watch(searchKeyword, () => {
   if (searchTimer !== undefined) {
     window.clearTimeout(searchTimer)
   }
+  clearChapterSelection()
   searchTimer = window.setTimeout(() => {
     runSearchNow()
   }, 300)
+})
+
+onBeforeUnmount(() => {
+  stopAllSingleCleanPolling()
+  stopBatchCleanPolling()
+  if (searchTimer !== undefined) {
+    window.clearTimeout(searchTimer)
+    searchTimer = undefined
+  }
 })
 </script>
 
@@ -1109,6 +1583,81 @@ watch(searchKeyword, () => {
   cursor: not-allowed;
 }
 
+.batch-clean-banner {
+  margin: 0 0 16px;
+  padding: 14px 18px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.32);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.12), rgba(37, 99, 235, 0.04));
+  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.12);
+}
+
+.batch-clean-banner__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.batch-clean-banner__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #e6edf3;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.batch-clean-banner__title .banner-icon {
+  font-size: 18px;
+  color: #93c5fd;
+}
+
+.batch-clean-banner__title .banner-status-tag {
+  margin-left: 4px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.batch-clean-banner__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  color: #c5cdd6;
+  font-size: 12px;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+.batch-clean-banner__meta .meta-fail {
+  color: #fca5a5;
+}
+
+.batch-clean-banner__meta .meta-cancel {
+  color: #fde68a;
+}
+
+.batch-clean-banner__meta .banner-cancel {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.batch-clean-banner__bar :deep(.el-progress-bar__outer) {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+}
+
+.batch-clean-banner__bar :deep(.el-progress-bar__inner) {
+  background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
+  border-radius: 999px;
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.32);
+}
+
 .table-wrap {
   flex: 1;
   min-height: 0;
@@ -1200,6 +1749,55 @@ watch(searchKeyword, () => {
   background-color: rgba(255, 255, 255, 0.24);
 }
 
+.novel-table :deep(.el-table__inner-wrapper),
+.novel-table :deep(.el-table__header-wrapper),
+.novel-table :deep(.el-table__body-wrapper),
+.novel-table :deep(.el-table__fixed),
+.novel-table :deep(.el-table__fixed-right),
+.novel-table :deep(.el-table__fixed-right-patch),
+.novel-table :deep(.el-table__empty-block),
+.novel-table :deep(.el-table__body),
+.novel-table :deep(.el-table__header) {
+  background-color: transparent !important;
+}
+
+.novel-table :deep(.el-table__inner-wrapper::before),
+.novel-table :deep(.el-table__border-left-patch),
+.novel-table :deep(.el-table__fixed-right::before) {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.novel-table :deep(.el-table__empty-text) {
+  color: #8b949e;
+}
+
+.novel-table :deep(.el-empty) {
+  --el-empty-padding: 28px 0;
+  --el-empty-description-margin-top: 10px;
+}
+
+.novel-table :deep(.el-empty__image svg) {
+  opacity: 0.58;
+  filter: saturate(0.75) brightness(0.72);
+}
+
+.novel-table :deep(.el-empty__description p) {
+  color: #8b949e;
+}
+
+.novel-table :deep(.el-loading-mask) {
+  background-color: rgba(13, 17, 23, 0.72) !important;
+  backdrop-filter: blur(2px);
+}
+
+.novel-table :deep(.el-loading-spinner .path) {
+  stroke: #60a5fa;
+}
+
+.novel-table :deep(.el-loading-spinner .el-loading-text) {
+  color: #c5cdd6;
+}
+
 .row-index {
   font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
   color: #93c5fd;
@@ -1264,6 +1862,18 @@ watch(searchKeyword, () => {
   box-shadow: 0 0 6px rgba(234, 179, 8, 0.6);
 }
 
+.status-chip--running {
+  color: #93c5fd;
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(96, 165, 250, 0.38);
+}
+
+.status-chip--running .status-dot {
+  background: #60a5fa;
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.72);
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
 .status-chip--error {
   color: #fca5a5;
   background: rgba(248, 113, 113, 0.1);
@@ -1325,6 +1935,22 @@ watch(searchKeyword, () => {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.pagination-wrap :deep(.el-pagination.is-background .btn-prev:hover:not(:disabled)),
+.pagination-wrap :deep(.el-pagination.is-background .btn-next:hover:not(:disabled)),
+.pagination-wrap :deep(.el-pagination.is-background .el-pager li:hover:not(.is-active)) {
+  color: #ffffff;
+  border-color: rgba(96, 165, 250, 0.36);
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.pagination-wrap :deep(.el-pagination.is-background .btn-prev:disabled),
+.pagination-wrap :deep(.el-pagination.is-background .btn-next:disabled),
+.pagination-wrap :deep(.el-pagination.is-background .el-pager li.is-disabled) {
+  color: #4d5560;
+  border-color: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .pagination-wrap :deep(.el-pagination.is-background .el-pager li.is-active) {
@@ -1504,6 +2130,12 @@ watch(searchKeyword, () => {
   margin-bottom: 0;
 }
 
+.view-progress {
+  color: #bfdbfe;
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(96, 165, 250, 0.26);
+}
+
 .view-actions {
   display: flex;
   justify-content: flex-end;
@@ -1513,6 +2145,19 @@ watch(searchKeyword, () => {
 
 .view-actions :deep(.el-button) {
   border-radius: 10px;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @media (max-width: 1080px) {
@@ -1560,7 +2205,7 @@ watch(searchKeyword, () => {
 </style>
 
 <style>
-/* novel 页专用暗色弹窗、下拉与抽屉（element-plus teleport 到 body，需置于非 scoped 块） */
+/* 小说页专用暗色弹窗、下拉与抽屉（Element Plus 挂载到 body，需置于非 scoped 块） */
 .novel-dark-dialog {
   background: linear-gradient(180deg, #12161b 0%, #0f141a 100%);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1746,7 +2391,7 @@ watch(searchKeyword, () => {
   border-color: #1d4ed8;
 }
 
-/* select 浮层 */
+/* 选择器浮层 */
 .novel-dark-select.el-popper {
   background-color: #14181f;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1785,12 +2430,12 @@ watch(searchKeyword, () => {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-/* multiple 模式下浮层选项的"已选" 状态（element-plus 多选下拉的勾选指示） */
+/* 多选模式下浮层选项的"已选" 状态（Element Plus 多选下拉的勾选指示） */
 .novel-dark-select.el-popper .el-select-dropdown__item.is-selected::after {
   color: #93c5fd;
 }
 
-/* multiple select 输入框内的已选 tag、折叠 tag 暗色风格 */
+/* 多选下拉输入框内的已选标签、折叠标签暗色风格 */
 .novel-dark-dialog .el-select__wrapper .el-select__selected-item .el-tag,
 .novel-dark-dialog .el-select .el-select__tags-text + .el-tag,
 .novel-dark-dialog .el-select__wrapper .el-tag {
@@ -1811,7 +2456,7 @@ watch(searchKeyword, () => {
   color: #ffffff;
 }
 
-/* collapse-tags-tooltip 浮层（鼠标 hover 已选 + N 标签时显示的全部已选项）暗色风格 */
+/* 折叠标签提示浮层（鼠标悬停已选 + N 标签时显示的全部已选项）暗色风格 */
 .el-popper.is-dark.el-tooltip__popper.el-select__popper--multiple,
 .el-popper.is-dark[role="tooltip"] {
   background: linear-gradient(180deg, #14181f 0%, #0d1117 100%);
@@ -1824,7 +2469,7 @@ watch(searchKeyword, () => {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
-/* el-table show-overflow-tooltip 浮层（章节标题超长时） */
+/* 表格溢出提示浮层（章节标题超长时） */
 .novel-cell-tooltip.el-popper {
   max-width: 520px;
   padding: 10px 14px;
@@ -1842,7 +2487,7 @@ watch(searchKeyword, () => {
   border-color: rgba(255, 255, 255, 0.12);
 }
 
-/* drawer 暗色 */
+/* 抽屉暗色 */
 .novel-dark-drawer {
   background: linear-gradient(180deg, #12161b 0%, #0f141a 100%);
   border-left: 1px solid rgba(255, 255, 255, 0.08);
@@ -1893,7 +2538,7 @@ watch(searchKeyword, () => {
   background-color: rgba(255, 255, 255, 0.24);
 }
 
-/* messagebox 暗色 */
+/* 消息框暗色 */
 .novel-dark-messagebox {
   background: linear-gradient(180deg, #14181f 0%, #0d1117 100%);
   border: 1px solid rgba(255, 255, 255, 0.08);
